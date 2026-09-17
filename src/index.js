@@ -9,6 +9,8 @@ const app = express();
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(express.json());
 
+const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || null;
+
 /* ---------------------------------------------------------------------- */
 /* Helpers                                                                  */
 /* ---------------------------------------------------------------------- */
@@ -217,30 +219,46 @@ app.get('/api/payments', requireAuth, requireAdmin, (req, res) => {
   res.json(rows.map(s => ({ id: s.id, name: s.name, track: s.track, ...studentBalanceAndStatus(s.id) })));
 });
 
-// Pays one of the signed-in student's own fees.
-//
-// *** REAL PAYMENT GATEWAY GOES HERE ***
-// This is where you'd call out to Stripe / a local gateway with the card
-// details from the client, using YOUR SECRET KEY (kept only in this
-// server's environment, never sent to the browser). Only mark the payment
-// as paid after the gateway confirms the charge succeeded — for example:
-//
-//   const charge = await stripe.paymentIntents.create({
-//     amount: Math.round(payment.amount * 100),
-//     currency: 'usd',
-//     payment_method: req.body.paymentMethodId,
-//     confirm: true,
-//   });
-//   if (charge.status !== 'succeeded') return res.status(402).json({ error: 'Payment failed.' });
-//
-app.post('/api/payments/:id/pay', requireAuth, (req, res) => {
+// Confirms and records a payment. With Paystack configured, this re-checks
+// the transaction with Paystack itself (via its /transaction/verify endpoint)
+// before marking anything paid — never trusts the browser's word alone that
+// a charge succeeded. Without Paystack configured, it falls back to the old
+// simulated flow so the portal keeps working for testing before you set your
+// keys.
+app.post('/api/payments/:id/pay', requireAuth, async (req, res) => {
   const payment = db.prepare(`SELECT * FROM payments WHERE id = ?`).get(req.params.id);
   if (!payment || payment.student_id !== req.user.studentId) {
     return res.status(404).json({ error: 'Payment not found.' });
   }
   if (payment.status === 'paid') return res.json(payment);
 
-  const txn = 'TXN-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+  let txn;
+  if (PAYSTACK_SECRET_KEY) {
+    const { reference } = req.body || {};
+    if (!reference) return res.status(400).json({ error: 'Missing payment reference.' });
+    try {
+      const verifyRes = await fetch(
+        `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
+        { headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` } }
+      );
+      const data = await verifyRes.json();
+      const tx = data && data.data;
+      const expectedAmount = Math.round(payment.amount * 100);
+      if (
+        !data.status || !tx || tx.status !== 'success' ||
+        tx.amount !== expectedAmount ||
+        !tx.metadata || String(tx.metadata.paymentId) !== String(payment.id)
+      ) {
+        return res.status(402).json({ error: 'Payment was not completed successfully.' });
+      }
+      txn = tx.reference;
+    } catch (e) {
+      return res.status(500).json({ error: 'Could not confirm payment: ' + e.message });
+    }
+  } else {
+    txn = 'TXN-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+  }
+
   db.prepare(`UPDATE payments SET status='paid', paid_on=date('now'), txn=? WHERE id=?`).run(txn, payment.id);
   res.json(db.prepare(`SELECT * FROM payments WHERE id = ?`).get(payment.id));
 });
@@ -328,6 +346,12 @@ app.post('/api/notifications/send-fee-reminders', requireAuth, requireAdmin, (re
 /* ---------------------------------------------------------------------- */
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
+
+// Public — tells the front-end whether real Paystack checkout is configured,
+// and gives it the public key (safe to expose — it's not a secret).
+app.get('/api/config', (req, res) => {
+  res.json({ paystackPublicKey: process.env.PAYSTACK_PUBLIC_KEY || null });
+});
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`Academy API listening on port ${port}`));
