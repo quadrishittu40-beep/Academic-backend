@@ -93,13 +93,20 @@ app.get('/api/me', requireAuth, (req, res) => {
 /* ---------------------------------------------------------------------- */
 
 app.put('/api/me/profile', requireAuth, (req, res) => {
-  const { name, track, email } = req.body || {};
+  const { name, track, email, password } = req.body || {};
+  if (password && password.length < 4) {
+    return res.status(400).json({ error: 'Password must be at least 4 characters.' });
+  }
   const tx = db.transaction(() => {
     if (name) db.prepare(`UPDATE users SET name = ? WHERE id = ?`).run(name, req.user.id);
     if (email && email.toLowerCase() !== req.user.email) {
       const taken = db.prepare(`SELECT id FROM users WHERE email = ?`).get(email.toLowerCase());
       if (taken) throw new Error('EMAIL_TAKEN');
       db.prepare(`UPDATE users SET email = ? WHERE id = ?`).run(email.toLowerCase(), req.user.id);
+    }
+    if (password) {
+      const passwordHash = bcrypt.hashSync(password, 10);
+      db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(passwordHash, req.user.id);
     }
     if (req.user.studentId) {
       db.prepare(`UPDATE students SET name = COALESCE(?, name), track = COALESCE(?, track) WHERE id = ?`)
@@ -290,17 +297,32 @@ app.post('/api/registrations/:id/approve', requireAuth, requireAdmin, (req, res)
   if (!reg) return res.status(404).json({ error: 'Registration not found.' });
 
   const studentId = nextStudentId();
+  // Login ID is the registration number itself; password is the student's surname
+  // (last word of their full name, lowercased). Simple and guardian-friendly —
+  // no email required. Stored in the same "email" column since it just needs
+  // to be a unique login identifier.
+  const surname = (reg.name || '').trim().split(/\s+/).filter(Boolean).pop() || 'student';
+  const password = surname.toLowerCase();
+  const passwordHash = bcrypt.hashSync(password, 10);
+
   const tx = db.transaction(() => {
     db.prepare(`INSERT INTO students (id, name, track) VALUES (?, ?, ?)`).run(studentId, reg.name, reg.track);
     db.prepare(
       `INSERT INTO payments (student_id, desc, due, amount, status) VALUES (?, 'Registration & Materials', 'Within 14 days of enrollment', 80, 'due')`
     ).run(studentId);
+    db.prepare(
+      `INSERT INTO users (name, email, password_hash, role, student_id) VALUES (?, ?, ?, 'student', ?)`
+    ).run(reg.name, studentId.toLowerCase(), passwordHash, studentId);
     db.prepare(`DELETE FROM registrations WHERE id = ?`).run(reg.id);
   });
   tx();
 
-  logNotification('enrollment', `Enrollment confirmed for ${reg.name}`, reg.contact);
-  res.json({ studentId });
+  logNotification(
+    'enrollment',
+    `Enrollment confirmed for ${reg.name}. Login ID: ${studentId} / Password: ${password}`,
+    reg.contact
+  );
+  res.json({ studentId, loginId: studentId, password });
 });
 
 /* ---------------------------------------------------------------------- */
