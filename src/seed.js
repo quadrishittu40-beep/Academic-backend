@@ -20,8 +20,8 @@ function upsertStudent(id, name, track) {
 }
 
 upsertStudent('MIA-0232', 'Maryam Siti Fatimah', 'Diploma in Tafsir — Year 1');
-upsertUser('Maryam Siti Fatimah', 'maryam@student.demo', 'demo123', 'student', 'MIA-0232');
-upsertUser("Ustadhah Amina Yusuf", 'admin@staff.demo', 'demo123', 'admin', null);
+upsertUser('Maryam Siti Fatimah', 'maryam.demo@example.com', 'demo123', 'student', 'MIA-0232');
+upsertUser("Ustadhah Amina Yusuf", 'admin.demo@example.com', 'demo123', 'admin', null);
 
 const hasPayment = db.prepare(`SELECT id FROM payments WHERE student_id = 'MIA-0232'`).get();
 if (!hasPayment) {
@@ -38,5 +38,5 @@ if (!hasLecture) {
 }
 
 console.log('Seed complete. Demo logins:');
-console.log('  Student: maryam@student.demo / demo123');
-console.log('  Staff:   admin@staff.demo / demo123');
+console.log('  Student: maryam.demo@example.com / demo123');
+console.log('  Staff:   admin.demo@example.com / demo123');
