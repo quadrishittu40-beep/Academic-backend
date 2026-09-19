@@ -9,6 +9,7 @@ const { signToken, requireAuth, requireAdmin } = require('./auth');
 const app = express();
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(express.json());
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || null;
 
