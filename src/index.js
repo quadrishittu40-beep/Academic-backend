@@ -331,9 +331,6 @@ app.post('/api/registrations/:id/approve', requireAuth, requireAdmin, (req, res)
   if (!reg) return res.status(404).json({ error: 'Registration not found.' });
 
   const studentId = nextStudentId();
-  // Login ID is the registration number itself; password is the student's surname
-  // (last word of their full name, lowercased). Simple and guardian-friendly —
-  // no email required for login, even though guardians supply one on the form.
   const surname = (reg.name || '').trim().split(/\s+/).filter(Boolean).pop() || 'student';
   const password = surname.toLowerCase();
   const passwordHash = bcrypt.hashSync(password, 10);
@@ -341,11 +338,12 @@ app.post('/api/registrations/:id/approve', requireAuth, requireAdmin, (req, res)
 
   const tx = db.transaction(() => {
     db.prepare(`INSERT INTO students (id, name, track) VALUES (?, ?, ?)`).run(studentId, reg.name, reg.track);
-    // The admission fee was already paid before this application was even
-    // submitted, so record it straight away as a paid entry in their history.
     db.prepare(
       `INSERT INTO payments (student_id, desc, due, amount, status, paid_on, txn) VALUES (?, 'Admission Fee', ?, ?, 'paid', ?, ?)`
     ).run(studentId, today, reg.payment_amount || 10000, today, reg.payment_ref || ('ADM-' + studentId));
+    db.prepare(
+      `INSERT INTO payments (student_id, desc, due, amount, status) VALUES (?, 'Term Tuition Fee', 'Within 30 days of enrollment', 40000, 'due')`
+    ).run(studentId);
     db.prepare(
       `INSERT INTO users (name, email, password_hash, role, student_id) VALUES (?, ?, ?, 'student', ?)`
     ).run(reg.name, studentId.toLowerCase(), passwordHash, studentId);
