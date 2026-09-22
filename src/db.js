@@ -1,15 +1,4 @@
 // db.js — SQLite database connection and schema.
-//
-// This uses SQLite (via better-sqlite3) because it needs zero setup: the
-// database is just a file on disk, created automatically. That's ideal to
-// get the academy running for real without provisioning a database server.
-//
-// When you outgrow it (many concurrent staff/students, need for backups /
-// replicas / a managed host), swap this file for a Postgres or MySQL client
-// (e.g. `pg` or `mysql2`) — every other file talks to the database only
-// through the functions exported here, so that's the only file that needs
-// to change.
-
 const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
@@ -33,7 +22,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS students (
-  id         TEXT PRIMARY KEY,          -- e.g. MIA-0231
+  id         TEXT PRIMARY KEY,
   name       TEXT NOT NULL,
   track      TEXT NOT NULL DEFAULT 'Not yet assigned',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -70,11 +59,22 @@ CREATE TABLE IF NOT EXISTS payments (
 );
 
 CREATE TABLE IF NOT EXISTS registrations (
-  id       INTEGER PRIMARY KEY AUTOINCREMENT,
-  name     TEXT NOT NULL,
-  track    TEXT NOT NULL,
-  contact  TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  name            TEXT NOT NULL,
+  dob             TEXT,
+  gender          TEXT,
+  address         TEXT,
+  guardian_name   TEXT,
+  guardian_phone  TEXT,
+  guardian_email  TEXT,
+  track           TEXT NOT NULL,
+  intake          TEXT,
+  prev_school     TEXT,
+  notes           TEXT,
+  contact         TEXT NOT NULL,
+  payment_amount  INTEGER NOT NULL DEFAULT 10000,
+  payment_ref     TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS notifications (
@@ -91,7 +91,6 @@ CREATE TABLE IF NOT EXISTS notif_settings (
 );
 `);
 
-// Seed default notification settings if not present.
 const defaults = { registrationAlerts: 1, feeReminders: 1 };
 const insertSetting = db.prepare(
   'INSERT OR IGNORE INTO notif_settings (key, value) VALUES (?, ?)'
