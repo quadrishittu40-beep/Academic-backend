@@ -12,6 +12,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || null;
+const ADMISSION_FEE_KOBO = 10000 * 100; // ₦10,000
 
 /* ---------------------------------------------------------------------- */
 /* Helpers                                                                  */
@@ -38,6 +39,10 @@ function logNotification(type, message, to) {
 function getSetting(key) {
   const row = db.prepare(`SELECT value FROM notif_settings WHERE key = ?`).get(key);
   return row ? !!row.value : true;
+}
+
+function publicUser(user) {
+  return { name: user.name, email: user.email, role: user.role, studentId: user.student_id };
 }
 
 /* ---------------------------------------------------------------------- */
@@ -82,10 +87,6 @@ app.post('/api/auth/login', (req, res) => {
   res.json({ token: signToken(user), user: publicUser(user) });
 });
 
-function publicUser(user) {
-  return { name: user.name, email: user.email, role: user.role, studentId: user.student_id };
-}
-
 app.get('/api/me', requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
@@ -126,7 +127,7 @@ app.put('/api/me/profile', requireAuth, (req, res) => {
 });
 
 /* ---------------------------------------------------------------------- */
-/* Students (staff directory + a student's own record)                      */
+/* Students                                                                  */
 /* ---------------------------------------------------------------------- */
 
 app.get('/api/students', requireAuth, requireAdmin, (req, res) => {
@@ -228,12 +229,6 @@ app.get('/api/payments', requireAuth, requireAdmin, (req, res) => {
   res.json(rows.map(s => ({ id: s.id, name: s.name, track: s.track, ...studentBalanceAndStatus(s.id) })));
 });
 
-// Confirms and records a payment. With Paystack configured, this re-checks
-// the transaction with Paystack itself (via its /transaction/verify endpoint)
-// before marking anything paid — never trusts the browser's word alone that
-// a charge succeeded. Without Paystack configured, it falls back to the old
-// simulated flow so the portal keeps working for testing before you set your
-// keys.
 app.post('/api/payments/:id/pay', requireAuth, async (req, res) => {
   const payment = db.prepare(`SELECT * FROM payments WHERE id = ?`).get(req.params.id);
   if (!payment || payment.student_id !== req.user.studentId) {
@@ -273,19 +268,56 @@ app.post('/api/payments/:id/pay', requireAuth, async (req, res) => {
 });
 
 /* ---------------------------------------------------------------------- */
-/* Registrations (public intake + staff review)                             */
+/* Registrations — standard admission form, gated behind a ₦10,000 fee      */
 /* ---------------------------------------------------------------------- */
 
-// Public — no auth. This is the endpoint the public registration form posts to.
-app.post('/api/registrations', (req, res) => {
-  const { name, track, contact } = req.body || {};
-  if (!name || !track || !contact) return res.status(400).json({ error: 'name, track and contact are required.' });
+// Public — no auth. The admission fee (₦10,000) must be verified with
+// Paystack BEFORE the application is accepted, unless Paystack isn't
+// configured yet, in which case it falls back to accepting the application
+// unpaid (test mode), same graceful-fallback pattern used elsewhere.
+app.post('/api/registrations', async (req, res) => {
+  const {
+    name, dob, gender, address,
+    guardianName, guardianPhone, guardianEmail,
+    track, intake, prevSchool, notes,
+    reference
+  } = req.body || {};
 
-  const info = db.prepare(`INSERT INTO registrations (name, track, contact) VALUES (?, ?, ?)`)
-    .run(name, track, contact);
+  if (!name || !track || !(guardianPhone || guardianEmail)) {
+    return res.status(400).json({ error: 'Student name, programme, and at least one guardian contact are required.' });
+  }
+
+  if (PAYSTACK_SECRET_KEY) {
+    if (!reference) return res.status(400).json({ error: 'Admission fee payment is required before submitting.' });
+    try {
+      const verifyRes = await fetch(
+        `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
+        { headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` } }
+      );
+      const data = await verifyRes.json();
+      const tx = data && data.data;
+      if (!data.status || !tx || tx.status !== 'success' || tx.amount !== ADMISSION_FEE_KOBO) {
+        return res.status(402).json({ error: 'Admission fee payment was not completed successfully.' });
+      }
+    } catch (e) {
+      return res.status(500).json({ error: 'Could not confirm admission fee payment: ' + e.message });
+    }
+  }
+
+  const contact = guardianEmail || guardianPhone;
+  const info = db.prepare(`
+    INSERT INTO registrations
+      (name, dob, gender, address, guardian_name, guardian_phone, guardian_email, track, intake, prev_school, notes, contact, payment_amount, payment_ref)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    name, dob || null, gender || null, address || null,
+    guardianName || null, guardianPhone || null, guardianEmail || null,
+    track, intake || null, prevSchool || null, notes || null,
+    contact, 10000, reference || null
+  );
 
   if (getSetting('registrationAlerts')) {
-    logNotification('registration', `New registration from ${name} for ${track}`, 'maknazulirfanacademy@gmail.com (staff)');
+    logNotification('registration', `New admission application from ${name} for ${track} (admission fee paid)`, 'maknazulirfanacademy@gmail.com (staff)');
   }
   res.json(db.prepare(`SELECT * FROM registrations WHERE id = ?`).get(info.lastInsertRowid));
 });
@@ -301,17 +333,19 @@ app.post('/api/registrations/:id/approve', requireAuth, requireAdmin, (req, res)
   const studentId = nextStudentId();
   // Login ID is the registration number itself; password is the student's surname
   // (last word of their full name, lowercased). Simple and guardian-friendly —
-  // no email required. Stored in the same "email" column since it just needs
-  // to be a unique login identifier.
+  // no email required for login, even though guardians supply one on the form.
   const surname = (reg.name || '').trim().split(/\s+/).filter(Boolean).pop() || 'student';
   const password = surname.toLowerCase();
   const passwordHash = bcrypt.hashSync(password, 10);
+  const today = new Date().toISOString().slice(0, 10);
 
   const tx = db.transaction(() => {
     db.prepare(`INSERT INTO students (id, name, track) VALUES (?, ?, ?)`).run(studentId, reg.name, reg.track);
+    // The admission fee was already paid before this application was even
+    // submitted, so record it straight away as a paid entry in their history.
     db.prepare(
-      `INSERT INTO payments (student_id, desc, due, amount, status) VALUES (?, 'Registration & Materials', 'Within 14 days of enrollment', 80, 'due')`
-    ).run(studentId);
+      `INSERT INTO payments (student_id, desc, due, amount, status, paid_on, txn) VALUES (?, 'Admission Fee', ?, ?, 'paid', ?, ?)`
+    ).run(studentId, today, reg.payment_amount || 10000, today, reg.payment_ref || ('ADM-' + studentId));
     db.prepare(
       `INSERT INTO users (name, email, password_hash, role, student_id) VALUES (?, ?, ?, 'student', ?)`
     ).run(reg.name, studentId.toLowerCase(), passwordHash, studentId);
@@ -360,7 +394,7 @@ app.post('/api/notifications/send-fee-reminders', requireAuth, requireAdmin, (re
   dues.forEach(p => {
     logNotification(
       'reminder',
-      `Fee reminder: ${p.desc} ($${p.amount}) due ${p.due} — ${p.student_name}`,
+      `Fee reminder: ${p.desc} (₦${p.amount}) due ${p.due} — ${p.student_name}`,
       emailByStudent[p.student_id] || 'guardian on file'
     );
   });
@@ -371,8 +405,6 @@ app.post('/api/notifications/send-fee-reminders', requireAuth, requireAdmin, (re
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
-// Public — tells the front-end whether real Paystack checkout is configured,
-// and gives it the public key (safe to expose — it's not a secret).
 app.get('/api/config', (req, res) => {
   res.json({ paystackPublicKey: process.env.PAYSTACK_PUBLIC_KEY || null });
 });
