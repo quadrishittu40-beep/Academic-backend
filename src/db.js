@@ -85,6 +85,15 @@ CREATE TABLE IF NOT EXISTS notifications (
   date    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS exam_registrations (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  term       TEXT NOT NULL,
+  courses    TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(student_id, term)
+);
+
 CREATE TABLE IF NOT EXISTS notif_settings (
   key   TEXT PRIMARY KEY,
   value INTEGER NOT NULL
