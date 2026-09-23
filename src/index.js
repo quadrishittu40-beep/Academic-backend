@@ -400,6 +400,43 @@ app.post('/api/notifications/send-fee-reminders', requireAuth, requireAdmin, (re
 });
 
 /* ---------------------------------------------------------------------- */
+/* Exam course registration — locked until fully paid up                    */
+/* ---------------------------------------------------------------------- */
+
+app.get('/api/exam-registrations/mine', requireAuth, (req, res) => {
+  if (!req.user.studentId) return res.json(null);
+  const row = db.prepare(
+    `SELECT * FROM exam_registrations WHERE student_id = ? ORDER BY id DESC LIMIT 1`
+  ).get(req.user.studentId);
+  res.json(row ? { ...row, courses: JSON.parse(row.courses) } : null);
+});
+
+app.post('/api/exam-registrations', requireAuth, (req, res) => {
+  if (!req.user.studentId) return res.status(400).json({ error: 'No student record on this account.' });
+  const { term, courses } = req.body || {};
+  if (!term || !Array.isArray(courses) || !courses.length) {
+    return res.status(400).json({ error: 'Term and at least one course are required.' });
+  }
+  const { balance } = studentBalanceAndStatus(req.user.studentId);
+  if (balance > 0) {
+    return res.status(402).json({ error: 'Outstanding fees must be fully paid before registering for exams.' });
+  }
+  db.prepare(`
+    INSERT INTO exam_registrations (student_id, term, courses) VALUES (?, ?, ?)
+    ON CONFLICT(student_id, term) DO UPDATE SET courses = excluded.courses, created_at = datetime('now')
+  `).run(req.user.studentId, term, JSON.stringify(courses));
+  const row = db.prepare(`SELECT * FROM exam_registrations WHERE student_id = ? AND term = ?`).get(req.user.studentId, term);
+  res.json({ ...row, courses: JSON.parse(row.courses) });
+});
+
+app.get('/api/exam-registrations', requireAuth, requireAdmin, (req, res) => {
+  const rows = db.prepare(`
+    SELECT exam_registrations.*, students.name as student_name
+    FROM exam_registrations JOIN students ON students.id = exam_registrations.student_id
+    ORDER BY exam_registrations.id DESC
+  `).all();
+  res.json(rows.map(r => ({ ...r, courses: JSON.parse(r.courses) })));
+});
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
