@@ -51,8 +51,11 @@ function publicUser(user) {
 
 app.post('/api/auth/signup', (req, res) => {
   const { name, email, password, role, track } = req.body || {};
-  if (!name || !email || !password || !['student', 'admin'].includes(role)) {
-    return res.status(400).json({ error: 'name, email, password and a valid role are required.' });
+  if (!name || !email || !password || role !== 'admin') {
+    // Student accounts are never created via self-signup — only through an
+    // approved (and paid) admission application. This blocks the loophole
+    // server-side, not just by hiding the option in the UI.
+    return res.status(400).json({ error: 'Only staff accounts can be created here. Students register via the admission form.' });
   }
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
 
