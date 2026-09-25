@@ -27,7 +27,7 @@ const hasPayment = db.prepare(`SELECT id FROM payments WHERE student_id = 'MIA-0
 if (!hasPayment) {
   db.prepare(
     `INSERT INTO payments (student_id, desc, due, amount, status) VALUES (?, ?, ?, ?, ?)`
-  ).run('MIA-0232', 'Term 3 Tuition Fee', '2026-09-30', 40000, 'due');
+  ).run('MIA-0232', 'Term 3 Tuition Fee', '2026-09-30', 50,000, 'due');
 }
 
 const hasLecture = db.prepare(`SELECT id FROM lectures`).get();
