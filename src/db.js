@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS registrations (
   name            TEXT NOT NULL,
   dob             TEXT,
   gender          TEXT,
+  nationality     TEXT,
   address         TEXT,
   guardian_name   TEXT,
   guardian_phone  TEXT,
