@@ -19,7 +19,7 @@ function upsertStudent(id, name, track) {
   db.prepare(`INSERT OR IGNORE INTO students (id, name, track) VALUES (?, ?, ?)`).run(id, name, track);
 }
 
-upsertStudent('MIA-0232', 'Maryam Siti Fatimah', 'Diploma in Tafsir — Year 1');
+upsertStudent('MIA-0232', 'Maryam Siti Fatimah', 'Advanced');
 upsertUser('Maryam Siti Fatimah', 'maryam.demo@example.com', 'demo123', 'student', 'MIA-0232');
 upsertUser("Ustadhah Amina Yusuf", 'admin.demo@example.com', 'demo123', 'admin', null);
 
@@ -27,14 +27,14 @@ const hasPayment = db.prepare(`SELECT id FROM payments WHERE student_id = 'MIA-0
 if (!hasPayment) {
   db.prepare(
     `INSERT INTO payments (student_id, desc, due, amount, status) VALUES (?, ?, ?, ?, ?)`
-  ).run('MIA-0232', 'Term 3 Tuition Fee', '2026-09-30', 420, 'due');
+  ).run('MIA-0232', 'Term 3 Tuition Fee', '2026-09-30', 40000, 'due');
 }
 
 const hasLecture = db.prepare(`SELECT id FROM lectures`).get();
 if (!hasLecture) {
   db.prepare(
     `INSERT INTO lectures (title, teacher, track, day, time, mode) VALUES (?, ?, ?, ?, ?, ?)`
-  ).run('Tafsir Surah Al-Baqarah — Session 12', 'Ustadh Kamil Rahman', 'Diploma in Tafsir', 'Mon & Wed', '8:00–9:30 PM', 'In-person, Hall A');
+  ).run('Arabic Grammar (Syntax) — Session 12', 'Ustadh Kamil Rahman', 'Advanced', 'Mon & Wed', '8:00–9:30 PM', 'In-person, Hall A');
 }
 
 console.log('Seed complete. Demo logins:');
