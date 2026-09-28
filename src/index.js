@@ -195,11 +195,37 @@ app.get('/api/results', requireAuth, requireAdmin, (req, res) => {
   res.json(rows);
 });
 
-app.post('/api/results', requireAuth, requireAdmin, (req, res) => {
-  const { studentId, subject, term, score, grade } = req.body || {};
-  if (!studentId || !subject || !term || !score || !grade) {
-    return res.status(400).json({ error: 'All result fields are required.' });
+// Grades are always computed here from the score — never trusted from the
+// client — so a teacher can't accidentally (or deliberately) enter a grade
+// that doesn't match the actual score.
+function parsePercent(score) {
+  const s = String(score || '').trim();
+  const frac = s.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+  if (frac) {
+    const max = parseFloat(frac[2]);
+    if (max > 0) return (parseFloat(frac[1]) / max) * 100;
   }
+  const plain = s.match(/^(\d+(?:\.\d+)?)$/);
+  if (plain) return parseFloat(plain[1]);
+  return NaN;
+}
+function gradeForScore(percent) {
+  if (percent >= 70) return 'A';
+  if (percent >= 60) return 'B';
+  if (percent >= 50) return 'C';
+  if (percent >= 45) return 'D';
+  if (percent >= 40) return 'E';
+  return 'F';
+}
+
+app.post('/api/results', requireAuth, requireAdmin, (req, res) => {
+  const { studentId, subject, term, score } = req.body || {};
+  if (!studentId || !subject || !term || !score) {
+    return res.status(400).json({ error: 'Student, subject, term and score are required.' });
+  }
+  const percent = parsePercent(score);
+  if (isNaN(percent)) return res.status(400).json({ error: 'Score must be a number (e.g. 85) or fraction (e.g. 85/100).' });
+  const grade = gradeForScore(percent);
   const info = db.prepare(
     `INSERT INTO results (student_id, subject, term, score, grade) VALUES (?, ?, ?, ?, ?)`
   ).run(studentId, subject, term, score, grade);
@@ -207,7 +233,10 @@ app.post('/api/results', requireAuth, requireAdmin, (req, res) => {
 });
 
 app.put('/api/results/:id', requireAuth, requireAdmin, (req, res) => {
-  const { subject, term, score, grade } = req.body || {};
+  const { subject, term, score } = req.body || {};
+  const percent = parsePercent(score);
+  if (isNaN(percent)) return res.status(400).json({ error: 'Score must be a number (e.g. 85) or fraction (e.g. 85/100).' });
+  const grade = gradeForScore(percent);
   db.prepare(`UPDATE results SET subject=?, term=?, score=?, grade=? WHERE id=?`)
     .run(subject, term, score, grade, req.params.id);
   res.json(db.prepare(`SELECT * FROM results WHERE id = ?`).get(req.params.id));
@@ -345,7 +374,7 @@ app.post('/api/registrations/:id/approve', requireAuth, requireAdmin, (req, res)
       `INSERT INTO payments (student_id, desc, due, amount, status, paid_on, txn) VALUES (?, 'Admission Fee', ?, ?, 'paid', ?, ?)`
     ).run(studentId, today, reg.payment_amount || 10000, today, reg.payment_ref || ('ADM-' + studentId));
     db.prepare(
-      `INSERT INTO payments (student_id, desc, due, amount, status) VALUES (?, 'Term Tuition Fee', 'Within 30 days of enrollment', 40000, 'due')`
+      `INSERT INTO payments (student_id, desc, due, amount, status) VALUES (?, 'Term Tuition Fee', 'Within 30 days of enrollment', 50000, 'due')`
     ).run(studentId);
     db.prepare(
       `INSERT INTO users (name, email, password_hash, role, student_id) VALUES (?, ?, ?, 'student', ?)`
