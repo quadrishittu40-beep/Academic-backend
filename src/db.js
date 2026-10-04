@@ -29,13 +29,14 @@ CREATE TABLE IF NOT EXISTS students (
 );
 
 CREATE TABLE IF NOT EXISTS lectures (
-  id       INTEGER PRIMARY KEY AUTOINCREMENT,
-  title    TEXT NOT NULL,
-  teacher  TEXT NOT NULL,
-  track    TEXT NOT NULL,
-  day      TEXT NOT NULL,
-  time     TEXT NOT NULL,
-  mode     TEXT NOT NULL
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  title     TEXT NOT NULL,
+  teacher   TEXT NOT NULL,
+  track     TEXT NOT NULL,
+  day       TEXT NOT NULL,
+  time      TEXT NOT NULL,
+  mode      TEXT NOT NULL,
+  materials TEXT
 );
 
 CREATE TABLE IF NOT EXISTS results (
@@ -63,7 +64,6 @@ CREATE TABLE IF NOT EXISTS registrations (
   name            TEXT NOT NULL,
   dob             TEXT,
   gender          TEXT,
-  nationality     TEXT,
   address         TEXT,
   guardian_name   TEXT,
   guardian_phone  TEXT,
@@ -100,6 +100,11 @@ CREATE TABLE IF NOT EXISTS notif_settings (
   value INTEGER NOT NULL
 );
 `);
+
+// Migration: add "materials" to lectures if it doesn't exist yet (for
+// databases created before this column was introduced). Safe to run every
+// startup — ignores the error if the column is already there.
+try { db.exec(`ALTER TABLE lectures ADD COLUMN materials TEXT`); } catch (e) { /* already added */ }
 
 const defaults = { registrationAlerts: 1, feeReminders: 1 };
 const insertSetting = db.prepare(
