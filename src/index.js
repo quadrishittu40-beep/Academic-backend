@@ -52,9 +52,6 @@ function publicUser(user) {
 app.post('/api/auth/signup', (req, res) => {
   const { name, email, password, role, track } = req.body || {};
   if (!name || !email || !password || role !== 'admin') {
-    // Student accounts are never created via self-signup — only through an
-    // approved (and paid) admission application. This blocks the loophole
-    // server-side, not just by hiding the option in the UI.
     return res.status(400).json({ error: 'Only staff accounts can be created here. Students register via the admission form.' });
   }
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
@@ -154,21 +151,21 @@ app.get('/api/lectures', requireAuth, (req, res) => {
 });
 
 app.post('/api/lectures', requireAuth, requireAdmin, (req, res) => {
-  const { title, teacher, track, day, time, mode } = req.body || {};
+  const { title, teacher, track, day, time, mode, materials } = req.body || {};
   if (!title || !teacher || !track || !day || !time || !mode) {
     return res.status(400).json({ error: 'All lecture fields are required.' });
   }
   const info = db.prepare(
-    `INSERT INTO lectures (title, teacher, track, day, time, mode) VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(title, teacher, track, day, time, mode);
+    `INSERT INTO lectures (title, teacher, track, day, time, mode, materials) VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(title, teacher, track, day, time, mode, materials || null);
   res.json(db.prepare(`SELECT * FROM lectures WHERE id = ?`).get(info.lastInsertRowid));
 });
 
 app.put('/api/lectures/:id', requireAuth, requireAdmin, (req, res) => {
-  const { title, teacher, track, day, time, mode } = req.body || {};
+  const { title, teacher, track, day, time, mode, materials } = req.body || {};
   db.prepare(
-    `UPDATE lectures SET title=?, teacher=?, track=?, day=?, time=?, mode=? WHERE id=?`
-  ).run(title, teacher, track, day, time, mode, req.params.id);
+    `UPDATE lectures SET title=?, teacher=?, track=?, day=?, time=?, mode=?, materials=? WHERE id=?`
+  ).run(title, teacher, track, day, time, mode, materials || null, req.params.id);
   res.json(db.prepare(`SELECT * FROM lectures WHERE id = ?`).get(req.params.id));
 });
 
@@ -225,6 +222,8 @@ app.post('/api/results', requireAuth, requireAdmin, (req, res) => {
   }
   const percent = parsePercent(score);
   if (isNaN(percent)) return res.status(400).json({ error: 'Score must be a number (e.g. 85) or fraction (e.g. 85/100).' });
+  const dup = db.prepare(`SELECT id FROM results WHERE student_id = ? AND subject = ? AND term = ?`).get(studentId, subject, term);
+  if (dup) return res.status(409).json({ error: 'A result for this student, subject and term already exists — edit it instead of adding a new one.' });
   const grade = gradeForScore(percent);
   const info = db.prepare(
     `INSERT INTO results (student_id, subject, term, score, grade) VALUES (?, ?, ?, ?, ?)`
@@ -303,10 +302,6 @@ app.post('/api/payments/:id/pay', requireAuth, async (req, res) => {
 /* Registrations — standard admission form, gated behind a ₦10,000 fee      */
 /* ---------------------------------------------------------------------- */
 
-// Public — no auth. The admission fee (₦10,000) must be verified with
-// Paystack BEFORE the application is accepted, unless Paystack isn't
-// configured yet, in which case it falls back to accepting the application
-// unpaid (test mode), same graceful-fallback pattern used elsewhere.
 app.post('/api/registrations', async (req, res) => {
   const {
     name, dob, gender, address,
