@@ -665,7 +665,7 @@ function LecturesView(){
         <div class="divider"></div>
         <div class="row-between">
           <span class="muted">${l.day} · ${l.time}</span>
-          ${isAdmin ? `<span style="display:flex;gap:8px;"><button class="btn ghost" onclick="toggleLectureForm('edit',${i})">Edit</button><button class="btn ghost" onclick="removeLecture(${i})">Remove</button></span>` : `<button class="btn ghost" onclick='viewMaterials(${JSON.stringify(l.materials||"")})'>View materials</button>`}
+          ${isAdmin ? `<span style="display:flex;gap:8px;"><button class="btn ghost" onclick="toggleLectureForm('edit',${i})">Edit</button><button class="btn ghost" onclick="removeLecture(${i})">Remove</button></span>` : `<button class="btn ghost" onclick="viewMaterials(state.lectures[${i}])">View materials</button>`}
         </div>
       </div>
     `).join('') || `<p class="muted">No lectures scheduled yet.</p>`}`;
@@ -717,6 +717,9 @@ function LectureFormHTML(){
         <div class="field"><label>Mode</label><input id="lf-mode" value="${l.mode}" required placeholder="e.g. Online — Live"></div>
       </div>
       <div class="field"><label>Materials (link or notes, optional)</label><textarea id="lf-materials" rows="3" placeholder="e.g. a Google Drive link, or notes on what to bring/read">${l.materials||''}</textarea></div>
+      <div class="field"><label>Attach PDF (optional)</label><input id="lf-materials-pdf" type="file" accept="application/pdf">
+        ${editing && l.materials_filename ? `<div class="muted" style="margin-top:4px;">Current file: ${l.materials_filename} — choose a new PDF to replace it, or leave blank to keep it.</div>` : ''}
+      </div>
       <div class="row-between">
         <button class="btn ghost" type="button" onclick="toggleLectureForm(null)">Cancel</button>
         <button class="btn gold" type="submit" ${allTitleOptions.length===0?'disabled':''}>${editing?'Save changes':'Add lecture'}</button>
@@ -1391,20 +1394,40 @@ async function submitLecture(e){
   const day = days.join(' & ') || 'TBD';
   const materials = document.getElementById('lf-materials').value.trim();
   const lecture = { title, teacher, track, day, time, mode, materials };
-  try{
-    if(state.lectureForm.mode==='edit'){
-      const id = state.lectures[state.lectureForm.index].id;
-      await apiRequest('/api/lectures/'+id, { method:'PUT', body: JSON.stringify(lecture) });
-    } else {
-      await apiRequest('/api/lectures', { method:'POST', body: JSON.stringify(lecture) });
+  const isEdit = state.lectureForm.mode==='edit';
+  const fileInput = document.getElementById('lf-materials-pdf');
+  const file = fileInput && fileInput.files[0];
+
+  async function saveLecture(materialsFile, materialsFilename, keepExistingFile){
+    try{
+      const payload = { ...lecture, materialsFile, materialsFilename, keepExistingFile };
+      if(isEdit){
+        const id = state.lectures[state.lectureForm.index].id;
+        await apiRequest('/api/lectures/'+id, { method:'PUT', body: JSON.stringify(payload) });
+      } else {
+        await apiRequest('/api/lectures', { method:'POST', body: JSON.stringify(payload) });
+      }
+      state.lectures = await apiRequest('/api/lectures');
+      state.lectureForm = null;
+      showToast('Lecture saved.');
+    }catch(err){
+      showToast(err.message);
     }
-    state.lectures = await apiRequest('/api/lectures');
-    state.lectureForm = null;
-    showToast('Lecture saved.');
-  }catch(err){
-    showToast(err.message);
+    render();
   }
-  render();
+
+  if(file){
+    if(file.type !== 'application/pdf'){ showToast('Only PDF files are supported.'); return false; }
+    const reader = new FileReader();
+    reader.onload = function(){
+      const base64 = reader.result.split(',')[1];
+      saveLecture(base64, file.name, false);
+    };
+    reader.onerror = function(){ showToast('Could not read that file.'); };
+    reader.readAsDataURL(file);
+  } else {
+    await saveLecture(null, null, true); // no new file — keep whatever was already attached
+  }
   return false;
 }
 async function removeLecture(i){
@@ -1526,21 +1549,37 @@ function printProfile(){
   const loginId = state.session ? state.session.email : '';
   const me = state.students.find(s=>s.id===sid) || {};
   const when = new Date();
-  const dateStr = when.toLocaleDateString('en-GB', { day:'2-digit', month:'long', year:'numeric' });
+  const fmt = d => d.toLocaleDateString('en-GB', { day:'2-digit', month:'long', year:'numeric' });
+  const dateStr = fmt(when);
+  const enrolledRaw = me.created_at ? new Date(String(me.created_at).replace(' ','T') + 'Z') : null;
+  const enrolledStr = (enrolledRaw && !isNaN(enrolledRaw)) ? fmt(enrolledRaw) : '—';
+  const balance = studentBalance(sid);
+  const payments = state.paymentsByStudent[sid] || [];
+  const summaries = summarizeByTerm(state.resultsByStudent[sid] || []);
+  const reg = state.myExamRegistration;
+  const summaryCode = summaries.map(s=>`${s.term.replace(/\s+/g,'')}:${s.average.toFixed(0)}${s.pass?'P':'F'}`).join(',') || 'NORESULTS';
+  // The QR code encodes the actual profile content: who, which section,
+  // fee standing, academic standing per term, and the issue date.
+  const qrValue = `PRF|${sid||'NA'}|${studentName}|${me.track||'NA'}|${balance>0?'FEEDUE':'CLEAR'}|${summaryCode}|${when.toISOString().slice(0,10)}`;
 
   const html = `<!DOCTYPE html>
   <html><head><meta charset="UTF-8"><title>Profile - ${studentName}</title>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"><\/script>
   <style>
-    body{font-family:Georgia,'Times New Roman',serif;color:#1C1B17;padding:30px;max-width:650px;margin:0 auto;}
+    body{font-family:Georgia,'Times New Roman',serif;color:#1C1B17;padding:30px;max-width:700px;margin:0 auto;}
     .head{display:flex;align-items:center;gap:16px;border-bottom:3px double #163832;padding-bottom:14px;margin-bottom:18px;}
     .head img{width:64px;height:64px;object-fit:contain;flex:none;}
     .head h1{font-size:20px;margin:0;color:#163832;}
     .head p{margin:2px 0 0;font-size:12px;color:#555;}
     .title{text-align:center;background:#163832;color:#fff;padding:7px;font-size:13px;letter-spacing:1.5px;margin-bottom:20px;}
-    table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:13.5px;}
-    td{padding:6px 0;vertical-align:top;}
-    td.label{color:#555;width:180px;}
-    .foot{margin-top:26px;font-size:11.5px;color:#777;border-top:1px solid #ccc;padding-top:10px;}
+    h2{font-size:14px;color:#163832;margin:22px 0 6px;border-bottom:1px solid #ccc;padding-bottom:4px;letter-spacing:0.5px;text-transform:uppercase;}
+    table{width:100%;border-collapse:collapse;margin-bottom:10px;font-size:13.5px;}
+    td,th{padding:6px 4px;vertical-align:top;text-align:left;}
+    td.label{color:#555;width:200px;}
+    table.grid th{background:#163832;color:#fff;font-size:11.5px;letter-spacing:0.5px;text-transform:uppercase;padding:7px 8px;}
+    table.grid td{border-bottom:1px solid #ddd;padding:7px 8px;}
+    .codes{margin-top:24px;text-align:center;}
+    .foot{margin-top:22px;font-size:11.5px;color:#777;border-top:1px solid #ccc;padding-top:10px;}
     @media print{ body{padding:0;} }
   </style></head>
   <body>
@@ -1553,16 +1592,44 @@ function printProfile(){
       </div>
     </div>
     <div class="title">STUDENT PROFILE</div>
+
+    <h2>Personal &amp; Enrollment Details</h2>
     <table>
       <tr><td class="label">Full Name</td><td>${studentName}</td></tr>
       <tr><td class="label">Student ID</td><td>${sid||''}</td></tr>
       <tr><td class="label">Section</td><td>${me.track||''}</td></tr>
       <tr><td class="label">Login ID</td><td>${loginId}</td></tr>
-      <tr><td class="label">Status</td><td>${studentStatusLabel(sid)}</td></tr>
+      <tr><td class="label">Enrolled Since</td><td>${enrolledStr}</td></tr>
+      <tr><td class="label">Account Status</td><td>${studentStatusLabel(sid)}</td></tr>
+      <tr><td class="label">Outstanding Balance</td><td>${balance>0 ? '&#8358;'+Number(balance).toLocaleString() : 'None — fully paid'}</td></tr>
       <tr><td class="label">Date Issued</td><td>${dateStr}</td></tr>
     </table>
+
+    <h2>Fees</h2>
+    <table class="grid">
+      <tr><th>Description</th><th>Amount</th><th>Status</th></tr>
+      ${payments.map(p=>`<tr><td>${p.desc}</td><td>&#8358;${Number(p.amount).toLocaleString()}</td><td>${p.status==='paid'?'Paid':'Due'}</td></tr>`).join('')
+        || '<tr><td colspan="3" style="color:#777;">No fee records yet.</td></tr>'}
+    </table>
+
+    <h2>Exam Course Registration</h2>
+    <p style="font-size:13.5px;margin:6px 0;">${reg ? `<strong>${reg.term}:</strong> ${reg.courses.join(', ')}` : 'No exam course registration yet.'}</p>
+
+    <h2>Academic Standing</h2>
+    ${summaries.length ? `
+    <table class="grid">
+      <tr><th>Term</th><th>Subjects</th><th>Cumulative Average</th><th>Status</th></tr>
+      ${summaries.map(s=>`<tr><td>${s.term}</td><td>${s.count}</td><td>${s.average.toFixed(1)}%</td><td><strong style="color:${s.pass?'#3B6B4E':'#9B3B33'};">${s.pass?'PASS':'FAIL'}</strong></td></tr>`).join('')}
+    </table>` : '<p style="font-size:13.5px;color:#777;margin:6px 0;">No results recorded yet.</p>'}
+
+    <div class="codes"><canvas id="qrcode"></canvas></div>
     <div class="foot">This profile summary is system-generated. Contact the academy office for any corrections.</div>
-    <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 300); };<\/script>
+    <script>
+      window.onload = function(){
+        try{ QRCode.toCanvas(document.getElementById('qrcode'), ${JSON.stringify(qrValue)}, { width:100, margin:1 }); }catch(e){}
+        setTimeout(function(){ window.print(); }, 450);
+      };
+    <\/script>
   </body></html>`;
 
   const w = window.open('', '_blank');
@@ -1591,6 +1658,7 @@ function printTranscript(){
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"><\/script>
   <style>
     body{font-family:Georgia,'Times New Roman',serif;color:#1C1B17;padding:30px;max-width:700px;margin:0 auto;}
     .head{display:flex;align-items:center;gap:16px;border-bottom:3px double #163832;padding-bottom:14px;margin-bottom:18px;}
@@ -1642,11 +1710,12 @@ function printTranscript(){
       <div class="signature">Olaallah</div>
       <div class="ack-title">REGISTRAR</div>
     </div>
-    <div style="margin-top:20px;text-align:center;"><svg id="barcode"></svg></div>
+    <div style="margin-top:20px;text-align:center;"><svg id="barcode"></svg><canvas id="qrcode" style="margin-left:24px;vertical-align:middle;"></canvas></div>
     <div class="foot">This transcript is system-generated and valid without a signature. Contact the academy office to verify authenticity.</div>
     <script>
       window.onload = function(){
         try{ JsBarcode("#barcode", ${JSON.stringify(barcodeValue)}, { format:"CODE128", displayValue:false, height:40, width:1.4, margin:0 }); }catch(e){}
+        try{ QRCode.toCanvas(document.getElementById('qrcode'), ${JSON.stringify(barcodeValue)}, { width:90, margin:1 }); }catch(e){}
         setTimeout(function(){ window.print(); }, 450);
       };
     <\/script>
@@ -1675,6 +1744,7 @@ function printReceiptData(data){
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"><\/script>
   <style>
     body{font-family:Georgia,'Times New Roman',serif;color:#1C1B17;padding:30px;max-width:650px;margin:0 auto;}
     .head{display:flex;align-items:center;gap:16px;border-bottom:3px double #163832;padding-bottom:14px;margin-bottom:18px;}
@@ -1722,11 +1792,12 @@ function printReceiptData(data){
       <div class="signature">Olaallah</div>
       <div class="ack-title">BURSAR</div>
     </div>
-    <div class="barcode-wrap"><svg id="barcode"></svg></div>
+    <div class="barcode-wrap"><svg id="barcode"></svg><canvas id="qrcode" style="margin-left:24px;vertical-align:middle;"></canvas></div>
     <div class="foot">This receipt is system-generated and valid without a signature. Thank you for your payment.</div>
     <script>
       window.onload = function(){
         try{ JsBarcode("#barcode", ${JSON.stringify(barcodeValue)}, { format:"CODE128", displayValue:false, height:40, width:1.4, margin:0 }); }catch(e){}
+        try{ QRCode.toCanvas(document.getElementById('qrcode'), ${JSON.stringify(barcodeValue)}, { width:90, margin:1 }); }catch(e){}
         setTimeout(function(){ window.print(); }, 450);
       };
     <\/script>
@@ -2009,27 +2080,48 @@ async function finalizeRegistration(data, reference){
   }
   render();
 }
-function viewMaterials(materials){
-  const text = (materials||'').trim();
-  if(!text){ showToast('No materials have been added for this lecture yet.'); return; }
-  const isUrl = /^https?:\/\//i.test(text);
-  if(isUrl){ window.open(text, '_blank'); return; }
-  state.materialsModal = text;
+function viewMaterials(lecture){
+  state.materialsModal = lecture;
   render();
 }
 function closeMaterialsModal(){ state.materialsModal = null; render(); }
 function MaterialsModal(){
-  const text = state.materialsModal;
-  if(!text) return '';
+  const l = state.materialsModal;
+  if(!l) return '';
+  const text = (l.materials||'').trim();
+  const isUrl = /^https?:\/\//i.test(text);
+  const hasFile = !!l.materials_filename;
   return `
   <div class="modal-overlay" onclick="if(event.target===this) closeMaterialsModal()">
     <div class="modal-card">
       <button class="modal-close" onclick="closeMaterialsModal()">✕</button>
       <div class="eyebrow">LECTURE MATERIALS</div>
-      <p style="white-space:pre-wrap;margin-top:10px;">${text}</p>
-      <button class="btn gold block" style="margin-top:14px;" onclick="closeMaterialsModal()">Close</button>
+      <h3 style="color:var(--teal-deep);margin:6px 0 12px;">${l.title}</h3>
+      ${text ? (isUrl
+          ? `<button class="btn gold block" onclick='window.open(${JSON.stringify(text)},"_blank")'>Open link</button>`
+          : `<p style="white-space:pre-wrap;">${text}</p>`)
+        : ''}
+      ${hasFile ? `<button class="btn gold block" style="margin-top:${text?10:0}px;" onclick="downloadLectureMaterial(${l.id})">Download PDF (${l.materials_filename})</button>` : ''}
+      ${!text && !hasFile ? `<p class="muted">No materials have been added for this lecture yet.</p>` : ''}
+      <button class="btn ghost block" style="margin-top:14px;" onclick="closeMaterialsModal()">Close</button>
     </div>
   </div>`;
+}
+async function downloadLectureMaterial(lectureId){
+  try{
+    const headers = {};
+    if(state.token) headers['Authorization'] = 'Bearer ' + state.token;
+    const res = await fetch(state.apiBase + '/api/lectures/' + lectureId + '/material-file', { headers });
+    if(!res.ok){
+      const err = await res.json().catch(()=>({}));
+      throw new Error(err.error || 'Could not fetch the file.');
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+  }catch(err){
+    showToast(err.message);
+  }
 }
 
 function closeAdmissionReceipt(){ state.admissionReceipt = null; render(); }
