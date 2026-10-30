@@ -1736,8 +1736,44 @@ function printReceiptData(data){
   const words = numberToWords(data.amount) + ' Naira Only';
   const studentName = data.studentName || '';
   const studentId = data.studentId || '';
-
   const barcodeValue = `RCT|${studentId||'NA'}|${data.txn||'NA'}|NGN${data.amount}|${when.toISOString().slice(0,10)}`;
+
+  // One receipt body, printed twice on the same page: the upper copy is kept
+  // by the institution, the lower copy goes to the student.
+  const copy = (label) => `
+    <div class="copy">
+      <div class="head">
+        <img src="${LOGO_URI}" alt="logo">
+        <div class="head-text">
+          <h1>Maknazul 'Irfan Academy</h1>
+          <p>Online Islamic &amp; Arabic Institution — Knowledge · Faith · Excellence</p>
+          <p>0808 492 9862 &middot; maknazulirfanacademy@gmail.com</p>
+        </div>
+        <div class="copy-tag">${label}</div>
+      </div>
+      <div class="title">OFFICIAL PAYMENT RECEIPT</div>
+      <table>
+        <tr><td class="label">Received From</td><td>${studentName}</td></tr>
+        ${studentId ? `<tr><td class="label">Student ID</td><td>${studentId}</td></tr>` : ''}
+        <tr><td class="label">Description</td><td>${data.desc}</td></tr>
+        <tr><td class="label">Transaction Reference</td><td>${data.txn||''}</td></tr>
+        <tr><td class="label">Date &amp; Time</td><td>${dateStr}, ${timeStr}</td></tr>
+      </table>
+      <div class="amount-box">
+        <span>Total Amount Paid</span>
+        <span class="fig">&#8358;${Number(data.amount).toLocaleString()}</span>
+      </div>
+      <div class="words">Amount in words: <strong>${words}</strong></div>
+      <div class="bottom">
+        <div class="ack">
+          Payment Acknowledged:
+          <div class="signature">Olaallah</div>
+          <div class="ack-title">BURSAR</div>
+        </div>
+        <div class="codes"><svg class="barcode"></svg><canvas class="qrcode"></canvas></div>
+      </div>
+      <div class="foot">System-generated receipt, valid without a signature. Thank you for your payment.</div>
+    </div>`;
 
   const html = `<!DOCTYPE html>
   <html><head><meta charset="UTF-8"><title>Receipt - ${studentName}</title>
@@ -1746,59 +1782,46 @@ function printReceiptData(data){
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"><\/script>
   <style>
-    body{font-family:Georgia,'Times New Roman',serif;color:#1C1B17;padding:30px;max-width:650px;margin:0 auto;}
-    .head{display:flex;align-items:center;gap:16px;border-bottom:3px double #163832;padding-bottom:14px;margin-bottom:18px;}
-    .head img{width:64px;height:64px;object-fit:contain;flex:none;}
-    .head h1{font-size:20px;margin:0;color:#163832;}
-    .head p{margin:2px 0 0;font-size:12px;color:#555;}
-    .title{text-align:center;background:#163832;color:#fff;padding:7px;font-size:13px;letter-spacing:1.5px;margin-bottom:20px;}
-    table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:13.5px;}
-    td{padding:5px 0;vertical-align:top;}
-    td.label{color:#555;width:180px;}
-    .amount-box{border:2px solid #163832;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;margin:18px 0 8px;}
-    .amount-box .fig{font-size:22px;font-weight:bold;color:#163832;}
-    .words{font-size:13px;font-style:italic;margin-bottom:22px;}
-    .ack{margin-top:36px;font-size:13px;}
-    .ack .signature{font-family:'Dancing Script',cursive;font-size:32px;color:#163832;margin:2px 0 -4px;}
-    .ack .ack-title{font-weight:bold;letter-spacing:3px;font-size:13px;}
-    .barcode-wrap{margin-top:20px;text-align:center;}
-    .foot{margin-top:26px;font-size:11.5px;color:#777;border-top:1px solid #ccc;padding-top:10px;}
-    @media print{ body{padding:0;} }
+    @page{size:A4;margin:8mm;}
+    body{font-family:Georgia,'Times New Roman',serif;color:#1C1B17;margin:0 auto;padding:10px;max-width:720px;}
+    .copy{padding:8px 12px;border:1px solid #163832;page-break-inside:avoid;break-inside:avoid;}
+    .head{display:flex;align-items:center;gap:12px;border-bottom:3px double #163832;padding-bottom:8px;margin-bottom:8px;}
+    .head img{width:52px;height:52px;object-fit:contain;flex:none;}
+    .head-text{flex:1;}
+    .head h1{font-size:17px;margin:0;color:#163832;}
+    .head p{margin:1px 0 0;font-size:10.5px;color:#555;}
+    .copy-tag{font-size:10px;letter-spacing:1.2px;font-weight:bold;color:#fff;background:#B7862C;padding:4px 8px;align-self:flex-start;white-space:nowrap;}
+    .title{text-align:center;background:#163832;color:#fff;padding:5px;font-size:12px;letter-spacing:1.5px;margin-bottom:8px;}
+    table{width:100%;border-collapse:collapse;margin-bottom:6px;font-size:12.5px;}
+    td{padding:3px 0;vertical-align:top;}
+    td.label{color:#555;width:160px;}
+    .amount-box{border:2px solid #163832;padding:7px 12px;display:flex;justify-content:space-between;align-items:center;margin:8px 0 4px;}
+    .amount-box .fig{font-size:19px;font-weight:bold;color:#163832;}
+    .words{font-size:12px;font-style:italic;margin-bottom:8px;}
+    .bottom{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;}
+    .ack{font-size:12px;}
+    .ack .signature{font-family:'Dancing Script',cursive;font-size:26px;color:#163832;margin:0 0 -3px;}
+    .ack .ack-title{font-weight:bold;letter-spacing:3px;font-size:12px;}
+    .codes{display:flex;align-items:center;gap:12px;}
+    .cut{border-top:2px dashed #888;margin:14px 0;height:0;text-align:center;}
+    .cut span{position:relative;top:-9px;background:#fff;padding:0 10px;font-size:11px;color:#666;}
+    .foot{font-size:10.5px;color:#777;margin-top:6px;border-top:1px solid #ddd;padding-top:4px;}
+    @media print{ body{padding:0;max-width:none;} }
   </style></head>
   <body>
-    <div class="head">
-      <img src="${LOGO_URI}" alt="logo">
-      <div>
-        <h1>Maknazul 'Irfan Academy</h1>
-        <p>Online Islamic &amp; Arabic Institution — Knowledge · Faith · Excellence</p>
-        <p>0808 492 9862 &middot; maknazulirfanacademy@gmail.com</p>
-      </div>
-    </div>
-    <div class="title">OFFICIAL PAYMENT RECEIPT</div>
-    <table>
-      <tr><td class="label">Received From</td><td>${studentName}</td></tr>
-      ${studentId ? `<tr><td class="label">Student ID</td><td>${studentId}</td></tr>` : ''}
-      <tr><td class="label">Description</td><td>${data.desc}</td></tr>
-      <tr><td class="label">Transaction Reference</td><td>${data.txn||''}</td></tr>
-      <tr><td class="label">Date &amp; Time</td><td>${dateStr}, ${timeStr}</td></tr>
-    </table>
-    <div class="amount-box">
-      <span>Total Amount Paid</span>
-      <span class="fig">&#8358;${Number(data.amount).toLocaleString()}</span>
-    </div>
-    <div class="words">Amount in words: <strong>${words}</strong></div>
-    <div class="ack">
-      Payment Acknowledged:
-      <div class="signature">Olaallah</div>
-      <div class="ack-title">BURSAR</div>
-    </div>
-    <div class="barcode-wrap"><svg id="barcode"></svg><canvas id="qrcode" style="margin-left:24px;vertical-align:middle;"></canvas></div>
-    <div class="foot">This receipt is system-generated and valid without a signature. Thank you for your payment.</div>
+    ${copy('INSTITUTION COPY')}
+    <div class="cut"><span>&#9986; cut here</span></div>
+    ${copy('STUDENT COPY')}
     <script>
       window.onload = function(){
-        try{ JsBarcode("#barcode", ${JSON.stringify(barcodeValue)}, { format:"CODE128", displayValue:false, height:40, width:1.4, margin:0 }); }catch(e){}
-        try{ QRCode.toCanvas(document.getElementById('qrcode'), ${JSON.stringify(barcodeValue)}, { width:90, margin:1 }); }catch(e){}
-        setTimeout(function(){ window.print(); }, 450);
+        var codeValue = ${JSON.stringify(barcodeValue)};
+        document.querySelectorAll('svg.barcode').forEach(function(el){
+          try{ JsBarcode(el, codeValue, { format:"CODE128", displayValue:false, height:32, width:1.2, margin:0 }); }catch(e){}
+        });
+        document.querySelectorAll('canvas.qrcode').forEach(function(el){
+          try{ QRCode.toCanvas(el, codeValue, { width:72, margin:1 }); }catch(e){}
+        });
+        setTimeout(function(){ window.print(); }, 600);
       };
     <\/script>
   </body></html>`;
