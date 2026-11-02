@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS notif_settings (
 try { db.exec(`ALTER TABLE lectures ADD COLUMN materials TEXT`); } catch (e) { /* already added */ }
 try { db.exec(`ALTER TABLE lectures ADD COLUMN materials_file TEXT`); } catch (e) { /* already added */ }
 try { db.exec(`ALTER TABLE lectures ADD COLUMN materials_filename TEXT`); } catch (e) { /* already added */ }
+try { db.exec(`ALTER TABLE users ADD COLUMN photo TEXT`); } catch (e) { /* already added */ }
 
 const defaults = { registrationAlerts: 1, feeReminders: 1 };
 const insertSetting = db.prepare(
