@@ -42,7 +42,11 @@ function getSetting(key) {
 }
 
 function publicUser(user) {
-  return { name: user.name, email: user.email, role: user.role, studentId: user.student_id };
+  return {
+    name: user.name, email: user.email, role: user.role, studentId: user.student_id,
+    // Staff get an ID number too, derived from their account number (e.g. STF-0001).
+    staffId: user.role === 'admin' ? 'STF-' + String(user.id).padStart(4, '0') : null,
+  };
 }
 
 /* ---------------------------------------------------------------------- */
@@ -485,6 +489,25 @@ app.get('/api/exam-registrations', requireAuth, requireAdmin, (req, res) => {
     ORDER BY exam_registrations.id DESC
   `).all();
   res.json(rows.map(r => ({ ...r, courses: JSON.parse(r.courses) })));
+});
+
+/* ---------------------------------------------------------------------- */
+/* ID card passport photo (each user manages their own)                     */
+/* ---------------------------------------------------------------------- */
+
+app.get('/api/me/photo', requireAuth, (req, res) => {
+  const row = db.prepare(`SELECT photo FROM users WHERE id = ?`).get(req.user.id);
+  res.json({ photo: row && row.photo ? row.photo : null });
+});
+
+app.put('/api/me/photo', requireAuth, (req, res) => {
+  const { photo } = req.body || {};
+  if (!photo || typeof photo !== 'string' || !/^data:image\/(jpeg|png|webp);base64,/.test(photo)) {
+    return res.status(400).json({ error: 'Please upload a JPG, PNG or WebP image.' });
+  }
+  if (photo.length > 1500000) return res.status(413).json({ error: 'That photo is too large — please choose a smaller one.' });
+  db.prepare(`UPDATE users SET photo = ? WHERE id = ?`).run(photo, req.user.id);
+  res.json({ ok: true });
 });
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
