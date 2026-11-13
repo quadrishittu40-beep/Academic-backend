@@ -110,6 +110,10 @@ try { db.exec(`ALTER TABLE lectures ADD COLUMN materials TEXT`); } catch (e) { /
 try { db.exec(`ALTER TABLE lectures ADD COLUMN materials_file TEXT`); } catch (e) { /* already added */ }
 try { db.exec(`ALTER TABLE lectures ADD COLUMN materials_filename TEXT`); } catch (e) { /* already added */ }
 try { db.exec(`ALTER TABLE users ADD COLUMN photo TEXT`); } catch (e) { /* already added */ }
+// Vital details carried over from the admission form so they can go on the ID card.
+for (const col of ['dob', 'gender', 'address', 'guardian_name', 'guardian_phone']) {
+  try { db.exec(`ALTER TABLE students ADD COLUMN ${col} TEXT`); } catch (e) { /* already added */ }
+}
 
 const defaults = { registrationAlerts: 1, feeReminders: 1 };
 const insertSetting = db.prepare(
