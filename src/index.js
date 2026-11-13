@@ -100,7 +100,7 @@ app.get('/api/me', requireAuth, (req, res) => {
 /* ---------------------------------------------------------------------- */
 
 app.put('/api/me/profile', requireAuth, (req, res) => {
-  const { name, track, email, password } = req.body || {};
+  const { name, track, email, password, dob, gender, address, guardianName, guardianPhone } = req.body || {};
   if (password && password.length < 4) {
     return res.status(400).json({ error: 'Password must be at least 4 characters.' });
   }
@@ -118,6 +118,17 @@ app.put('/api/me/profile', requireAuth, (req, res) => {
     if (req.user.studentId) {
       db.prepare(`UPDATE students SET name = COALESCE(?, name), track = COALESCE(?, track) WHERE id = ?`)
         .run(name || null, track || null, req.user.studentId);
+      // Let students complete ID-card details that are still blank. Anything
+      // already on record is never overwritten — corrections go through the office.
+      const cur = db.prepare(`SELECT dob, gender, address, guardian_name, guardian_phone FROM students WHERE id = ?`).get(req.user.studentId) || {};
+      const fill = (col, val, existing) => {
+        if (val && !existing) db.prepare(`UPDATE students SET ${col} = ? WHERE id = ?`).run(String(val).slice(0, 200), req.user.studentId);
+      };
+      fill('dob', dob, cur.dob);
+      fill('gender', gender === 'Male' || gender === 'Female' ? gender : null, cur.gender);
+      fill('address', address, cur.address);
+      fill('guardian_name', guardianName, cur.guardian_name);
+      fill('guardian_phone', guardianPhone, cur.guardian_phone);
     }
   });
   try {
@@ -390,7 +401,8 @@ app.post('/api/registrations/:id/approve', requireAuth, requireAdmin, (req, res)
   const today = new Date().toISOString().slice(0, 10);
 
   const tx = db.transaction(() => {
-    db.prepare(`INSERT INTO students (id, name, track) VALUES (?, ?, ?)`).run(studentId, reg.name, reg.track);
+    db.prepare(`INSERT INTO students (id, name, track, dob, gender, address, guardian_name, guardian_phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(studentId, reg.name, reg.track, reg.dob, reg.gender, reg.address, reg.guardian_name, reg.guardian_phone);
     db.prepare(
       `INSERT INTO payments (student_id, desc, due, amount, status, paid_on, txn) VALUES (?, 'Admission Fee', ?, ?, 'paid', ?, ?)`
     ).run(studentId, today, reg.payment_amount || 10000, today, reg.payment_ref || ('ADM-' + studentId));
