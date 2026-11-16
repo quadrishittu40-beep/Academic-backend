@@ -46,6 +46,7 @@ function publicUser(user) {
     name: user.name, email: user.email, role: user.role, studentId: user.student_id,
     // Staff get an ID number too, derived from their account number (e.g. STF-0001).
     staffId: user.role === 'admin' ? 'STF-' + String(user.id).padStart(4, '0') : null,
+    mustChangePassword: !!user.must_change_password,
   };
 }
 
@@ -100,9 +101,15 @@ app.get('/api/me', requireAuth, (req, res) => {
 /* ---------------------------------------------------------------------- */
 
 app.put('/api/me/profile', requireAuth, (req, res) => {
-  const { name, track, email, password, dob, gender, address, guardianName, guardianPhone } = req.body || {};
-  if (password && password.length < 4) {
-    return res.status(400).json({ error: 'Password must be at least 4 characters.' });
+  const { name, track, email, password, dob, gender, address, guardianName, guardianPhone, bloodGroup } = req.body || {};
+  if (password && password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  }
+  if (password) {
+    const current = db.prepare(`SELECT password_hash FROM users WHERE id = ?`).get(req.user.id);
+    if (current && bcrypt.compareSync(password, current.password_hash)) {
+      return res.status(400).json({ error: 'Please choose a password different from your current one.' });
+    }
   }
   const tx = db.transaction(() => {
     if (name) db.prepare(`UPDATE users SET name = ? WHERE id = ?`).run(name, req.user.id);
@@ -113,14 +120,14 @@ app.put('/api/me/profile', requireAuth, (req, res) => {
     }
     if (password) {
       const passwordHash = bcrypt.hashSync(password, 10);
-      db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(passwordHash, req.user.id);
+      db.prepare(`UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?`).run(passwordHash, req.user.id);
     }
     if (req.user.studentId) {
       db.prepare(`UPDATE students SET name = COALESCE(?, name), track = COALESCE(?, track) WHERE id = ?`)
         .run(name || null, track || null, req.user.studentId);
       // Let students complete ID-card details that are still blank. Anything
       // already on record is never overwritten — corrections go through the office.
-      const cur = db.prepare(`SELECT dob, gender, address, guardian_name, guardian_phone FROM students WHERE id = ?`).get(req.user.studentId) || {};
+      const cur = db.prepare(`SELECT dob, gender, address, guardian_name, guardian_phone, blood_group FROM students WHERE id = ?`).get(req.user.studentId) || {};
       const fill = (col, val, existing) => {
         if (val && !existing) db.prepare(`UPDATE students SET ${col} = ? WHERE id = ?`).run(String(val).slice(0, 200), req.user.studentId);
       };
@@ -129,6 +136,7 @@ app.put('/api/me/profile', requireAuth, (req, res) => {
       fill('address', address, cur.address);
       fill('guardian_name', guardianName, cur.guardian_name);
       fill('guardian_phone', guardianPhone, cur.guardian_phone);
+      fill('blood_group', ['A+','A-','B+','B-','AB+','AB-','O+','O-'].includes(bloodGroup) ? bloodGroup : null, cur.blood_group);
     }
   });
   try {
@@ -343,7 +351,7 @@ app.post('/api/registrations', async (req, res) => {
   const {
     name, dob, gender, address,
     guardianName, guardianPhone, guardianEmail,
-    track, intake, prevSchool, notes,
+    track, intake, prevSchool, notes, bloodGroup,
     reference
   } = req.body || {};
 
@@ -371,13 +379,13 @@ app.post('/api/registrations', async (req, res) => {
   const contact = guardianEmail || guardianPhone;
   const info = db.prepare(`
     INSERT INTO registrations
-      (name, dob, gender, address, guardian_name, guardian_phone, guardian_email, track, intake, prev_school, notes, contact, payment_amount, payment_ref)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (name, dob, gender, address, guardian_name, guardian_phone, guardian_email, track, intake, prev_school, notes, contact, payment_amount, payment_ref, blood_group)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     name, dob || null, gender || null, address || null,
     guardianName || null, guardianPhone || null, guardianEmail || null,
     track, intake || null, prevSchool || null, notes || null,
-    contact, 10000, reference || null
+    contact, 10000, reference || null, bloodGroup || null
   );
 
   if (getSetting('registrationAlerts')) {
@@ -401,8 +409,8 @@ app.post('/api/registrations/:id/approve', requireAuth, requireAdmin, (req, res)
   const today = new Date().toISOString().slice(0, 10);
 
   const tx = db.transaction(() => {
-    db.prepare(`INSERT INTO students (id, name, track, dob, gender, address, guardian_name, guardian_phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(studentId, reg.name, reg.track, reg.dob, reg.gender, reg.address, reg.guardian_name, reg.guardian_phone);
+    db.prepare(`INSERT INTO students (id, name, track, dob, gender, address, guardian_name, guardian_phone, blood_group) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(studentId, reg.name, reg.track, reg.dob, reg.gender, reg.address, reg.guardian_name, reg.guardian_phone, reg.blood_group);
     db.prepare(
       `INSERT INTO payments (student_id, desc, due, amount, status, paid_on, txn) VALUES (?, 'Admission Fee', ?, ?, 'paid', ?, ?)`
     ).run(studentId, today, reg.payment_amount || 10000, today, reg.payment_ref || ('ADM-' + studentId));
@@ -410,7 +418,7 @@ app.post('/api/registrations/:id/approve', requireAuth, requireAdmin, (req, res)
       `INSERT INTO payments (student_id, desc, due, amount, status) VALUES (?, 'Term Tuition Fee', 'Within 30 days of enrollment', 50000, 'due')`
     ).run(studentId);
     db.prepare(
-      `INSERT INTO users (name, email, password_hash, role, student_id) VALUES (?, ?, ?, 'student', ?)`
+      `INSERT INTO users (name, email, password_hash, role, student_id, must_change_password) VALUES (?, ?, ?, 'student', ?, 1)`
     ).run(reg.name, studentId.toLowerCase(), passwordHash, studentId);
     db.prepare(`DELETE FROM registrations WHERE id = ?`).run(reg.id);
   });
