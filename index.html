@@ -12,7 +12,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="MIA Academy">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700&family=Dancing+Script:wght@600&display=swap" rel="stylesheet">
 <script src="https://js.paystack.co/v1/inline.js"></script>
 <style>
   :root{
@@ -1160,7 +1160,12 @@ function RegistrationForm(){
           <div class="field"><label>Guardian phone</label><input id="reg-guardian-phone" type="tel" placeholder="+234..."></div>
           <div class="field"><label>Guardian email</label><input id="reg-guardian-email" type="email" placeholder="name@example.com"></div>
         </div>
-        <div class="field"><label>Previous school (if any)</label><input id="reg-prev-school" placeholder="Optional"></div>
+        <div class="two-col">
+          <div class="field"><label>Previous school (if any)</label><input id="reg-prev-school" placeholder="Optional"></div>
+          <div class="field"><label>Blood group (optional)</label>
+            <select id="reg-blood"><option value="">Not sure</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select>
+          </div>
+        </div>
         <div class="field"><label>Notes (optional)</label><textarea id="reg-notes" rows="3" placeholder="Prior Islamic education, memorization level, special requirements…"></textarea></div>
 
         <div class="paynote" style="margin:6px 0 16px;">
@@ -1180,6 +1185,8 @@ function render(){
   let body;
   if(!state.authed){
     body = state.showPublicRegister ? PublicRegisterView() : (state.showAuth ? GateView() : LandingView());
+  } else if(state.session && state.session.mustChangePassword){
+    body = ForcePasswordView();
   } else {
     let page;
     if(state.page==='dashboard') page = DashboardView();
@@ -1197,6 +1204,7 @@ function render(){
     body = `<div class="app">${Sidebar()}<div class="main">${state.apiError?`<div class="form-err" style="margin-bottom:18px;">${state.apiError}</div>`:''}${page}</div></div>`;
   }
   document.getElementById('root').innerHTML = body + (state.toast ? `<div class="toast">${state.toast}</div>` : '') + CheckoutModal() + EnrollCredsModal() + AdmissionReceiptModal() + MaterialsModal();
+  if(state.authed && state.page==='idcard') drawIdCodes();
   updateCardVisual();
 
 }
@@ -1754,6 +1762,84 @@ function currentPhoto(){
 const PROPRIETOR_SIGNATURE = 'Quadri';
 const ACADEMY_RETURN_PHONE = '08084929862';
 
+function ForcePasswordView(){
+  return `
+  <div class="gate"><div class="gate-card">
+    <div class="mark"><img class="logo-img" src="${LOGO_URI}" alt=""><div><div class="eyebrow">SECURITY</div></div></div>
+    <h1>Choose a new password</h1>
+    <div class="gate-sub">For your security, please replace the temporary password you were given before you continue.</div>
+    ${state.formError ? `<div class="form-err">${state.formError}</div>` : ''}
+    <form onsubmit="return submitForcedPassword(event)">
+      <div class="field"><label>New password</label><input id="fp-new" type="password" required placeholder="At least 6 characters"></div>
+      <div class="field"><label>Confirm new password</label><input id="fp-confirm" type="password" required></div>
+      <button class="btn gold block" type="submit" ${state.busy?'disabled':''}>${state.busy?'Saving…':'Save password & continue'}</button>
+    </form>
+    <button class="switch-link" style="margin-top:14px;" onclick="logout()">Sign out</button>
+  </div></div>`;
+}
+async function submitForcedPassword(e){
+  e.preventDefault();
+  const pw = document.getElementById('fp-new').value;
+  const pw2 = document.getElementById('fp-confirm').value;
+  if(pw.length < 6){ state.formError = 'Password must be at least 6 characters.'; render(); return false; }
+  if(pw !== pw2){ state.formError = 'Passwords do not match.'; render(); return false; }
+  state.busy = true; state.formError = null; render();
+  try{
+    const data = await apiRequest('/api/me/profile', { method:'PUT', body: JSON.stringify({ password: pw }) });
+    state.token = data.token; state.session = data.user;
+    state.formError = null;
+    showToast('Password updated.');
+  }catch(err){ state.formError = err.message; }
+  state.busy = false;
+  render();
+  return false;
+}
+
+const ACADEMY_PROGRAM = 'Islamic & Arabic Studies';
+
+// One card design, used both for the on-screen preview and the printed card.
+// Everything is sized in cqw (1% of the card's width) so it scales perfectly.
+const ID_CARD_CSS = `
+.idc-box{container-type:inline-size;width:100%;}
+.idc{position:relative;width:100%;aspect-ratio:85.6/54;background:#FBF7EA;border:1.1cqw solid #0F4A32;border-radius:2.8cqw;overflow:hidden;font-family:Georgia,'Times New Roman',serif;color:#14301F;box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.idc::after{content:'';position:absolute;inset:1.1cqw;border:.3cqw solid #B7862C;border-radius:1.8cqw;pointer-events:none;}
+.idc-head{text-align:center;padding-top:2.6cqw;}
+.idc-head .n{font-size:5.5cqw;font-weight:800;color:#0F4A32;letter-spacing:.15cqw;line-height:1.1;}
+.idc-head .t{font-size:3cqw;letter-spacing:.5cqw;color:#A8791E;font-weight:700;margin-top:.6cqw;font-family:Arial,sans-serif;}
+.idc-head .rule{height:.3cqw;background:#B7862C;width:62%;margin:1cqw auto 0;opacity:.7;}
+.idc-body{position:absolute;left:4.5cqw;right:4.5cqw;top:17.8cqw;display:flex;gap:3.5cqw;}
+.idc-photo{width:21cqw;height:26.5cqw;border:.5cqw solid #B7862C;background:#fff;display:flex;align-items:center;justify-content:center;font-size:8cqw;font-weight:800;color:#0F4A32;overflow:hidden;flex:none;}
+.idc-photo img{width:100%;height:100%;object-fit:cover;}
+.idc-rows{flex:1;min-width:0;display:grid;grid-template-columns:auto 1fr;column-gap:2cqw;row-gap:.7cqw;align-content:start;font-size:2.9cqw;line-height:1.15;font-family:Arial,sans-serif;}
+.idc-rows .l{font-weight:800;text-transform:uppercase;color:#1A3B2A;white-space:nowrap;}
+.idc-rows .v{font-weight:600;color:#111;overflow-wrap:anywhere;}
+.idc-rows .v.name{font-size:3.5cqw;font-weight:800;color:#0F4A32;font-family:Georgia,serif;}
+.idc-foot{position:absolute;left:4.5cqw;right:4.5cqw;bottom:3.4cqw;display:flex;align-items:flex-end;justify-content:space-between;}
+.holo{width:21cqw;height:6.4cqw;border-radius:.8cqw;background:linear-gradient(110deg,#c6d4ff,#e4ffd6 30%,#ffd6f0 55%,#d6f4ff 80%,#e8d9ff);border:.2cqw solid #b4b4b4;font-size:1.6cqw;font-weight:800;color:#445;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.15;padding:0 .8cqw;font-family:Arial,sans-serif;}
+.shield{width:5.6cqw;height:6.4cqw;margin-left:2cqw;}
+.sigbox{width:27cqw;text-align:center;}
+.sigbox .s{font-family:'Dancing Script',cursive;font-size:5.4cqw;color:#0F4A32;line-height:1;height:5.6cqw;}
+.sigbox .blank{height:5.6cqw;}
+.sigbox .line{border-top:.25cqw solid #333;margin:.3cqw 0 .4cqw;}
+.sigbox .cap{font-size:1.9cqw;font-weight:800;letter-spacing:.1cqw;color:#222;font-family:Arial,sans-serif;}
+.b-top{position:absolute;left:0;right:0;top:0;height:11cqw;background:#0F4A32;}
+.b-logo{position:absolute;left:50%;top:2.2cqw;transform:translateX(-50%);width:14.5cqw;height:14.5cqw;border-radius:50%;background:#fff;border:.6cqw solid #B7862C;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+.b-logo img{width:88%;height:88%;object-fit:contain;}
+.b-name{position:absolute;left:0;right:0;top:17.4cqw;text-align:center;font-size:4.7cqw;font-weight:800;color:#0F4A32;letter-spacing:.15cqw;}
+.b-contact{position:absolute;left:4.5cqw;right:4.5cqw;top:22.6cqw;text-align:center;font-size:2.3cqw;line-height:1.35;color:#222;font-family:Arial,sans-serif;}
+.b-contact b{color:#0F4A32;}
+.b-prop{position:absolute;left:4.5cqw;right:4.5cqw;top:32.2cqw;text-align:center;font-size:1.9cqw;line-height:1.35;text-transform:uppercase;color:#333;font-family:Arial,sans-serif;}
+.b-emerg{position:absolute;left:4.5cqw;right:4.5cqw;top:38cqw;display:flex;gap:1.5cqw;align-items:flex-end;font-size:2.5cqw;font-weight:700;font-family:Arial,sans-serif;}
+.b-emerg .v{flex:1;border-bottom:.25cqw solid #333;min-height:3cqw;font-weight:600;padding-left:1cqw;font-size:2.3cqw;}
+.b-codes{position:absolute;left:4.5cqw;right:4.5cqw;bottom:5.3cqw;display:flex;gap:3cqw;align-items:flex-end;justify-content:space-between;}
+.b-bar{flex:1;background:#fff;border:.25cqw solid #9a9a9a;padding:.9cqw 1.5cqw .5cqw;text-align:center;font-size:2cqw;font-family:Arial,sans-serif;}
+.b-bar svg{width:100%;height:7cqw;display:block;}
+.b-qr{width:14.4cqw;height:14.4cqw;background:#fff;padding:.5cqw;border:.25cqw solid #9a9a9a;box-sizing:border-box;}
+.b-qr canvas{width:100%!important;height:100%!important;display:block;}
+.b-tag{position:absolute;left:0;right:0;bottom:0;height:4.3cqw;background:#0F4A32;color:#F6E7B8;font-size:2cqw;font-weight:700;letter-spacing:.2cqw;display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;}
+`;
+const SHIELD_SVG = '<svg class="shield" viewBox="0 0 24 28"><path d="M12 1 L22 5 V13 C22 20 17 25 12 27 C7 25 2 20 2 13 V5 Z" fill="#E9C46A" stroke="#B7862C" stroke-width="1.2"/><path d="M7.5 14 l3 3 l6-7" fill="none" stroke="#0F4A32" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
 function fmtDate(str){
   if(!str) return '';
   const d = new Date(String(str).length === 10 ? str + 'T00:00:00' : str);
@@ -1763,30 +1849,94 @@ function idCardInfo(){
   const s = state.session || {};
   const isAdmin = state.role === 'admin';
   const me = state.students.find(x => x.id === s.studentId) || {};
-  const enrolled = me.created_at ? new Date(String(me.created_at).replace(' ','T') + 'Z') : null;
-  const issuedDate = (enrolled && !isNaN(enrolled)) ? enrolled : new Date();
-  const issued = issuedDate.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+  const now = new Date();
+  const until = new Date(now); until.setFullYear(until.getFullYear() + 1);   // a card is valid for one year from issue
+  const f = d => d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
   const base = {
     name: s.name || '', isAdmin,
     idNo: isAdmin ? (s.staffId || '—') : (s.studentId || '—'),
-    roleLabel: isAdmin ? 'STAFF ID CARD' : 'STUDENT ID CARD',
-    issued, issuedIso: issuedDate.toISOString().slice(0,10),
+    title: isAdmin ? 'STAFF IDENTITY CARD' : 'STUDENT IDENTITY CARD',
+    validUntil: f(until), validIso: until.toISOString().slice(0,10),
   };
   if(isAdmin){
-    return { ...base, level: 'Academy Staff',
-      rows: [['ID No.', base.idNo], ['Role', 'Academy Staff'], ['Email', s.email || '—'], ['Issued', issued]],
-      qrDetail: 'STAFF' };
+    return { ...base, emergency: '', qrDetail: 'STAFF',
+      rows: [['FULL NAME', base.name], ['STAFF ID', base.idNo], ['ROLE', 'Academy Staff'], ['EMAIL', s.email || '—'], ['VALID UNTIL', base.validUntil]] };
   }
   return { ...base,
-    level: me.track || '—', gender: me.gender || '', dob: me.dob || '', gphone: me.guardian_phone || '', address: me.address || '',
-    rows: [['ID No.', base.idNo], ['Level', me.track || '—'], ['Gender', me.gender || '—'],
-           ['Date of Birth', me.dob ? fmtDate(me.dob) : '—'], ['Guardian Tel.', me.guardian_phone || '—'], ['Issued', issued]],
-    qrDetail: `${me.track||''}|${me.gender||''}|${me.dob||''}|${me.guardian_phone||''}` };
+    level: me.track || '—', gender: me.gender || '', dob: me.dob || '', blood: me.blood_group || '',
+    gphone: me.guardian_phone || '', address: me.address || '',
+    emergency: [me.guardian_name, me.guardian_phone].filter(Boolean).join(' · '),
+    qrDetail: `${me.track||''}|${me.gender||''}|${me.dob||''}|${me.blood_group||''}|${me.guardian_phone||''}`,
+    rows: [['FULL NAME', base.name], ['STUDENT ID', base.idNo], ['LEVEL', me.track || '—'], ['PROGRAM', ACADEMY_PROGRAM],
+           ['DOB', me.dob ? fmtDate(me.dob) : '—'], ['BLOOD GP', me.blood_group || '—'], ['VALID UNTIL', base.validUntil]] };
 }
+function idQrValue(c){ return `IDC|${c.idNo}|${c.name}|${c.qrDetail}|${c.validIso}`; }
+function idCardFrontHTML(c, photo){
+  const initials = c.name.split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase();
+  const sig = PROPRIETOR_SIGNATURE ? `<div class="s">${PROPRIETOR_SIGNATURE}</div>` : `<div class="blank"></div>`;
+  return `<div class="idc-box"><div class="idc">
+    <div class="idc-head"><div class="n">MAKNAZUL 'IRFAN ACADEMY</div><div class="t">${c.title}</div><div class="rule"></div></div>
+    <div class="idc-body">
+      <div class="idc-photo">${photo ? `<img src="${photo}" alt="">` : initials}</div>
+      <div class="idc-rows">${c.rows.map(([k,v],i) => `<span class="l">${k}:</span><span class="v${i===0?' name':''}">${v}</span>`).join('')}</div>
+    </div>
+    <div class="idc-foot">
+      <div style="display:flex;align-items:flex-end;"><div class="holo">KNOWLEDGE · FAITH · EXCELLENCE</div>${SHIELD_SVG}</div>
+      <div class="sigbox">${sig}<div class="line"></div><div class="cap">PROPRIETOR'S SIGNATURE</div></div>
+    </div>
+  </div></div>`;
+}
+function idCardBackHTML(c){
+  const host = location.host || 'maknazulirfan.academy';
+  return `<div class="idc-box"><div class="idc">
+    <div class="b-top"></div>
+    <div class="b-logo"><img src="${LOGO_URI}" alt=""></div>
+    <div class="b-name">MAKNAZUL 'IRFAN ACADEMY</div>
+    <div class="b-contact">
+      <div><b>Web:</b> ${host} &nbsp;&middot;&nbsp; <b>Phone:</b> ${ACADEMY_RETURN_PHONE}</div>
+      <div><b>Email:</b> maknazulirfanacademy@gmail.com</div>
+      <div><b>Address:</b> Online Campus &amp; Registered Offices</div>
+    </div>
+    <div class="b-prop">This card is non-transferable and must be presented on request. If found, please return to the address above.</div>
+    <div class="b-emerg"><span>Emergency Contacts:</span><span class="v">${c.emergency || ''}</span></div>
+    <div class="b-codes">
+      <div class="b-bar"><svg id="idc-bar"></svg><div>${c.idNo}</div></div>
+      <div class="b-qr"><canvas id="idc-qr"></canvas></div>
+    </div>
+    <div class="b-tag">EMBARK ON YOUR PATH TO ILLUMINATION &amp; EXCELLENCE.</div>
+  </div></div>`;
+}
+
+// The preview needs the barcode/QR libraries; load them once, on demand.
+let _codeLibs = null;
+function ensureCodeLibs(){
+  if(window.QRCode && window.JsBarcode) return Promise.resolve();
+  if(_codeLibs) return _codeLibs;
+  const load = src => new Promise((ok, fail) => { const t = document.createElement('script'); t.src = src; t.onload = ok; t.onerror = fail; document.head.appendChild(t); });
+  _codeLibs = Promise.all([
+    load('https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js'),
+    load('https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js'),
+  ]).catch(() => { _codeLibs = null; });
+  return _codeLibs;
+}
+function drawIdCodes(){
+  ensureCodeLibs().then(() => {
+    const c = idCardInfo();
+    const q = document.getElementById('idc-qr'), b = document.getElementById('idc-bar');
+    try{ if(q && window.QRCode) QRCode.toCanvas(q, idQrValue(c), { width:200, margin:1 }); }catch(e){}
+    try{
+      if(b && window.JsBarcode){
+        JsBarcode(b, c.idNo, { format:'CODE128', displayValue:false, height:36, width:1.4, margin:0 });
+        const w = parseFloat(b.getAttribute('width')), hh = parseFloat(b.getAttribute('height'));
+        if(w && hh){ b.setAttribute('viewBox', `0 0 ${w} ${hh}`); b.setAttribute('preserveAspectRatio', 'none'); b.removeAttribute('width'); b.removeAttribute('height'); }
+      }
+    }catch(e){}
+  });
+}
+
 function IdCardView(){
   const c = idCardInfo();
   const photo = currentPhoto();
-  const initials = c.name.split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase();
   const detailsPanel = c.isAdmin ? '' : `
     <div class="panel" style="margin-top:18px;">
       <h3>ID card details</h3>
@@ -1797,25 +1947,19 @@ function IdCardView(){
         <div class="field"><label>Date of birth</label>${c.dob ? `<input value="${fmtDate(c.dob)}" disabled>` : `<input id="idd-dob" type="date">`}</div>
       </div>
       <div class="two-col">
+        <div class="field"><label>Blood group</label>${c.blood ? `<input value="${c.blood}" disabled>` : `<select id="idd-blood"><option value="">Select…</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select>`}</div>
         <div class="field"><label>Guardian phone</label>${c.gphone ? `<input value="${c.gphone}" disabled>` : `<input id="idd-gphone" type="tel" placeholder="e.g. 08084929862">`}</div>
-        <div class="field"><label>Home address</label>${c.address ? `<input value="${c.address}" disabled>` : `<input id="idd-address" placeholder="Street, city, state">`}</div>
       </div>
+      <div class="field"><label>Home address</label>${c.address ? `<input value="${c.address}" disabled>` : `<input id="idd-address" placeholder="Street, city, state">`}</div>
       <button class="btn ghost" onclick="saveIdDetails()">Save details</button>
     </div>`;
   return `
-    <div class="page-head"><div><div class="eyebrow">IDENTIFICATION</div><h2>ID Card</h2><p>Your official academy ID card.</p></div></div>
+    <style>${ID_CARD_CSS}</style>
+    <div class="page-head"><div><div class="eyebrow">IDENTIFICATION</div><h2>ID Card</h2><p>Your official academy ID card — front and back.</p></div></div>
     <div class="grid cols-2">
       <div>
-        <div class="id-card">
-          <div class="id-top"><img src="${LOGO_URI}" alt=""><div><b>Maknazul 'Irfan Academy</b><small>${c.roleLabel}</small></div></div>
-          <div class="id-body">
-            <div class="id-photo">${photo ? `<img src="${photo}" alt="photo">` : `<span>${initials||'?'}</span>`}</div>
-            <div class="id-info">
-              <div class="id-name">${c.name}</div>
-              ${c.rows.map(([k,v]) => `<div class="id-row"><span>${k}</span><b>${v}</b></div>`).join('')}
-            </div>
-          </div>
-        </div>
+        <div style="max-width:470px;">${idCardFrontHTML(c, photo)}</div>
+        <div style="max-width:470px;margin-top:16px;">${idCardBackHTML(c)}</div>
         <button class="btn gold" style="margin-top:14px;" onclick="printIdCard()">Download / Print ID card</button>
       </div>
       <div class="panel">
@@ -1833,6 +1977,7 @@ async function saveIdDetails(){
   const body = {};
   if(val('idd-gender')) body.gender = val('idd-gender');
   if(val('idd-dob')) body.dob = val('idd-dob');
+  if(val('idd-blood')) body.bloodGroup = val('idd-blood');
   if(val('idd-gphone')) body.guardianPhone = val('idd-gphone');
   if(val('idd-address')) body.address = val('idd-address');
   if(!Object.keys(body).length){ showToast('Fill in at least one missing detail first.'); return; }
@@ -1875,10 +2020,6 @@ function saveIdPhoto(){
 function printIdCard(){
   const c = idCardInfo();
   const photo = currentPhoto();
-  const initials = c.name.split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase();
-  const qrValue = `IDC|${c.idNo}|${c.name}|${c.qrDetail}|${c.issuedIso}`;
-  const who = c.isAdmin ? 'a member of staff' : 'a registered student';
-
   const html = `<!DOCTYPE html>
   <html><head><meta charset="UTF-8"><title>ID Card - ${c.name}</title>
   <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600&display=swap" rel="stylesheet">
@@ -1886,79 +2027,26 @@ function printIdCard(){
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"><\/script>
   <style>
     @page{size:A4;margin:12mm;}
-    *{box-sizing:border-box;}
-    body{font-family:Georgia,'Times New Roman',serif;margin:0;padding:6mm;color:#1C1B17;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-    .label{font-family:Arial,sans-serif;font-size:9pt;letter-spacing:1.5px;color:#666;text-transform:uppercase;margin:0 0 2mm;}
-    .card{width:85.6mm;height:54mm;border:0.4mm solid #B7862C;border-radius:3mm;overflow:hidden;display:flex;flex-direction:column;margin-bottom:8mm;page-break-inside:avoid;}
-    /* ---- front ---- */
-    .front{background:#163832;color:#fff;padding:2.5mm 4mm 0;}
-    .f-top{display:flex;align-items:center;gap:2.5mm;border-bottom:0.3mm solid rgba(255,255,255,.35);padding-bottom:1.5mm;}
-    .f-top img{width:9mm;height:9mm;object-fit:contain;}
-    .f-top b{display:block;font-size:9.5pt;}
-    .f-top small{font-size:6pt;letter-spacing:1.2px;color:#D9B368;}
-    .f-body{display:flex;gap:3.5mm;align-items:center;flex:1;}
-    .photo{width:22mm;height:27mm;background:#E4E8DE;color:#163832;border:0.5mm solid #B7862C;display:flex;align-items:center;justify-content:center;font-size:16pt;font-weight:bold;overflow:hidden;flex:none;}
-    .photo img{width:100%;height:100%;object-fit:cover;}
-    .info{flex:1;min-width:0;}
-    .nm{font-size:9pt;font-weight:bold;line-height:1.15;margin-bottom:1mm;}
-    .row{display:flex;justify-content:space-between;gap:2mm;font-size:6pt;padding:0.35mm 0;border-bottom:0.2mm solid rgba(255,255,255,.2);}
-    .row span{color:#a9c2ba;white-space:nowrap;} .row b{text-align:right;}
-    .f-foot{background:#B7862C;color:#0E2622;text-align:center;font-size:5.5pt;letter-spacing:1.5px;padding:0.9mm;margin:0 -4mm;font-weight:bold;}
-    /* ---- back ---- */
-    .back{background:#fff;padding:2.5mm 4mm;justify-content:space-between;}
-    .b-head{display:flex;align-items:center;gap:2mm;border-bottom:0.3mm solid #163832;padding-bottom:1mm;}
-    .b-head img{width:7mm;height:7mm;object-fit:contain;}
-    .b-head b{display:block;font-size:8pt;color:#163832;}
-    .b-head small{font-size:5.5pt;letter-spacing:1.3px;color:#B7862C;font-weight:bold;}
-    .b-text{font-size:5.4pt;line-height:1.35;color:#333;}
-    .b-mid{display:flex;align-items:center;justify-content:space-between;gap:3mm;}
-    .b-id span{display:block;font-size:5.4pt;letter-spacing:1px;color:#666;text-transform:uppercase;}
-    .b-id b{display:block;font-size:9pt;color:#163832;letter-spacing:0.5px;margin-bottom:0.5mm;}
-    .b-id svg{height:8mm;max-width:44mm;}
-    .b-return{font-size:5.4pt;line-height:1.35;color:#163832;border:0.2mm solid #B7862C;padding:0.8mm 1.5mm;}
-    .b-foot{display:flex;justify-content:space-between;align-items:flex-end;}
-    .sig{width:34mm;text-align:center;font-size:5.4pt;}
-    .sig .s{font-family:'Dancing Script',cursive;font-size:13pt;color:#163832;line-height:1;height:6mm;}
-    .sig .blank{height:6mm;}
-    .sig .line{border-top:0.25mm solid #333;margin:0.3mm 0;}
-    .sig b{letter-spacing:1.5px;font-size:5.4pt;}
-    .issued{font-size:5.4pt;color:#555;text-align:right;}
+    body{font-family:Arial,sans-serif;margin:0;padding:6mm;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+    .label{font-size:9pt;letter-spacing:1.5px;color:#666;text-transform:uppercase;margin:0 0 2mm;}
+    .side{width:85.6mm;margin-bottom:9mm;page-break-inside:avoid;break-inside:avoid;}
+    ${ID_CARD_CSS}
   </style></head>
   <body>
     <p class="label">Front</p>
-    <div class="card front">
-      <div class="f-top"><img src="${LOGO_URI}" alt=""><div><b>Maknazul 'Irfan Academy</b><small>${c.roleLabel}</small></div></div>
-      <div class="f-body">
-        <div class="photo">${photo ? `<img src="${photo}" alt="">` : initials}</div>
-        <div class="info">
-          <div class="nm">${c.name}</div>
-          ${c.rows.map(([k,v]) => `<div class="row"><span>${k}</span><b>${v}</b></div>`).join('')}
-        </div>
-      </div>
-      <div class="f-foot">KNOWLEDGE · FAITH · EXCELLENCE</div>
-    </div>
+    <div class="side">${idCardFrontHTML(c, photo)}</div>
     <p class="label">Back</p>
-    <div class="card back">
-      <div class="b-head"><img src="${LOGO_URI}" alt=""><div><b>Maknazul 'Irfan Academy</b><small>IDENTITY CARD</small></div></div>
-      <div class="b-text">This card is the property of Maknazul 'Irfan Academy and is not transferable. The bearer is ${who} of the academy and must present this card on request.</div>
-      <div class="b-mid">
-        <div class="b-id"><span>ID Card No.</span><b>${c.idNo}</b><svg id="barcode"></svg></div>
-        <canvas id="qrcode"></canvas>
-      </div>
-      <div class="b-return"><b>If found, please return to:</b> Maknazul 'Irfan Academy &middot; Tel: ${ACADEMY_RETURN_PHONE} &middot; maknazulirfanacademy@gmail.com</div>
-      <div class="b-foot">
-        <div class="sig">
-          ${PROPRIETOR_SIGNATURE ? `<div class="s">${PROPRIETOR_SIGNATURE}</div>` : `<div class="blank"></div>`}
-          <div class="line"></div><b>PROPRIETOR</b>
-        </div>
-        <div class="issued">Issued: ${c.issued}</div>
-      </div>
-    </div>
+    <div class="side">${idCardBackHTML(c)}</div>
     <script>
       window.onload = function(){
-        try{ JsBarcode("#barcode", ${JSON.stringify(c.idNo)}, { format:"CODE128", displayValue:false, height:28, width:1.2, margin:0 }); }catch(e){}
-        try{ QRCode.toCanvas(document.getElementById('qrcode'), ${JSON.stringify(qrValue)}, { width:58, margin:1 }); }catch(e){}
-        setTimeout(function(){ window.print(); }, 600);
+        var svg = document.getElementById('idc-bar'), cv = document.getElementById('idc-qr');
+        try{
+          JsBarcode(svg, ${JSON.stringify(c.idNo)}, { format:'CODE128', displayValue:false, height:36, width:1.4, margin:0 });
+          var w = parseFloat(svg.getAttribute('width')), h = parseFloat(svg.getAttribute('height'));
+          if(w && h){ svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h); svg.setAttribute('preserveAspectRatio', 'none'); svg.removeAttribute('width'); svg.removeAttribute('height'); }
+        }catch(e){}
+        try{ QRCode.toCanvas(cv, ${JSON.stringify(idQrValue(c))}, { width:200, margin:1 }); }catch(e){}
+        setTimeout(function(){ window.print(); }, 800);
       };
     <\/script>
   </body></html>`;
@@ -2277,6 +2365,7 @@ function collectRegistrationForm(){
     track: document.getElementById('reg-track').value,
     intake: document.getElementById('reg-intake').value.trim(),
     prevSchool: document.getElementById('reg-prev-school').value.trim(),
+    bloodGroup: document.getElementById('reg-blood').value,
     notes: document.getElementById('reg-notes').value.trim(),
   };
 }
@@ -2441,7 +2530,7 @@ function EnrollCredsModal(){
       <p class="muted" style="margin:0 0 12px;">Share these login details with the family.</p>
       <div class="receipt-row"><span class="muted">Login ID</span><span>${c.loginId}</span></div>
       <div class="receipt-row"><span class="muted">Password</span><span>${c.password}</span></div>
-      <div class="paynote" style="margin-top:14px;">Password is the student's surname — they can change it any time from their profile page.</div>
+      <div class="paynote" style="margin-top:14px;">Password is the student's surname — they'll be asked to choose their own password the first time they sign in.</div>
       <button class="btn gold block" style="margin-top:18px;" onclick="closeEnrollCreds()">Done</button>
     </div>
   </div>`;
