@@ -111,9 +111,20 @@ try { db.exec(`ALTER TABLE lectures ADD COLUMN materials_file TEXT`); } catch (e
 try { db.exec(`ALTER TABLE lectures ADD COLUMN materials_filename TEXT`); } catch (e) { /* already added */ }
 try { db.exec(`ALTER TABLE users ADD COLUMN photo TEXT`); } catch (e) { /* already added */ }
 // Vital details carried over from the admission form so they can go on the ID card.
-for (const col of ['dob', 'gender', 'address', 'guardian_name', 'guardian_phone']) {
+for (const col of ['dob', 'gender', 'address', 'guardian_name', 'guardian_phone', 'blood_group']) {
   try { db.exec(`ALTER TABLE students ADD COLUMN ${col} TEXT`); } catch (e) { /* already added */ }
 }
+
+try { db.exec(`ALTER TABLE registrations ADD COLUMN blood_group TEXT`); } catch (e) { /* already added */ }
+
+// Students are given a temporary password (their surname) when approved, so
+// they must replace it at first sign-in. The UPDATE only runs the first time
+// this column is created, so students who already chose a password are never
+// forced to change it again.
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0`);
+  db.exec(`UPDATE users SET must_change_password = 1 WHERE role = 'student'`);
+} catch (e) { /* already added */ }
 
 const defaults = { registrationAlerts: 1, feeReminders: 1 };
 const insertSetting = db.prepare(
