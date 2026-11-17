@@ -1816,7 +1816,11 @@ const ID_CARD_CSS = `
 .idc-rows .v.name{font-size:3.5cqw;font-weight:800;color:#0F4A32;font-family:Georgia,serif;}
 .idc-foot{position:absolute;left:4.5cqw;right:4.5cqw;bottom:3.4cqw;display:flex;align-items:flex-end;justify-content:space-between;}
 .holo{width:21cqw;height:6.4cqw;border-radius:.8cqw;background:linear-gradient(110deg,#c6d4ff,#e4ffd6 30%,#ffd6f0 55%,#d6f4ff 80%,#e8d9ff);border:.2cqw solid #b4b4b4;font-size:1.6cqw;font-weight:800;color:#445;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.15;padding:0 .8cqw;font-family:Arial,sans-serif;}
-.shield{width:5.6cqw;height:6.4cqw;margin-left:2cqw;}
+.shield{width:5.6cqw;height:6.4cqw;}
+.stk-row{display:flex;align-items:flex-end;gap:1.6cqw;}
+.stk{display:flex;flex-direction:column;align-items:center;}
+.holo2{width:14cqw;background:linear-gradient(120deg,#d4d4d4,#f7f7f7 40%,#cdcdcd 70%,#efefef);}
+.cap2{font-size:1.5cqw;font-weight:700;letter-spacing:.1cqw;color:#444;margin-top:.3cqw;font-family:Arial,sans-serif;}
 .sigbox{width:27cqw;text-align:center;}
 .sigbox .s{font-family:'Dancing Script',cursive;font-size:5.4cqw;color:#0F4A32;line-height:1;height:5.6cqw;}
 .sigbox .blank{height:5.6cqw;}
@@ -1881,7 +1885,7 @@ function idCardFrontHTML(c, photo){
       <div class="idc-rows">${c.rows.map(([k,v],i) => `<span class="l">${k}:</span><span class="v${i===0?' name':''}">${v}</span>`).join('')}</div>
     </div>
     <div class="idc-foot">
-      <div style="display:flex;align-items:flex-end;"><div class="holo">KNOWLEDGE · FAITH · EXCELLENCE</div>${SHIELD_SVG}</div>
+      <div class="stk-row"><div class="stk"><div class="holo">KNOWLEDGE · FAITH · EXCELLENCE</div><div class="cap2">UNIQUE NUMBER</div></div><div class="stk"><div class="holo holo2">FAITH · EXCELLENCE</div></div>${SHIELD_SVG}</div>
       <div class="sigbox">${sig}<div class="line"></div><div class="cap">PROPRIETOR'S SIGNATURE</div></div>
     </div>
   </div></div>`;
@@ -1955,7 +1959,7 @@ function IdCardView(){
     </div>`;
   return `
     <style>${ID_CARD_CSS}</style>
-    <div class="page-head"><div><div class="eyebrow">IDENTIFICATION</div><h2>ID Card</h2><p>Your official academy ID card — front and back.</p></div></div>
+    <div class="page-head"><div><div class="eyebrow">IDENTIFICATION</div><h2>ID Card</h2><p>Your official academy ID card — front and back. <span class="muted">(Card design v4)</span></p></div></div>
     <div class="grid cols-2">
       <div>
         <div style="max-width:470px;">${idCardFrontHTML(c, photo)}</div>
